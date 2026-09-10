@@ -10,7 +10,7 @@ require (
 
 require (
 	github.com/charmbracelet/bubbletea v1.3.6
-	github.com/charmbracelet/huh v0.8.0
+	github.com/charmbracelet/huh v1.0.0
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/coder/websocket v1.8.15
 	golang.org/x/crypto v0.52.0
