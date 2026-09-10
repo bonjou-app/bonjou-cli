@@ -24,6 +24,7 @@ follow this file. Read toolchain versions and scripts from the current manifests
 - The approved organization architecture and migration state are documented in [docs/repository-architecture.md](docs/repository-architecture.md). Update repository links and documentation together when ownership changes; preserve history, license notices, releases, and working installation channels.
 - The Go relay has its own deployment but stays in this Go module. It must forward opaque content without client encryption keys, decryption, or payload storage.
 - Go owns `internal/network/testdata/protocol-v2.json`. The web repo keeps a copy pinned to a reviewed CLI commit with a checksum. The browser compatibility job checks a pinned web revision against this repository's candidate vectors and relay. Coordinate changes through linked PRs and explicit revision updates.
+- The approved logo is maintained in `bonjou-web/src/share/brandMark.json`. Keep `docs/assets/bonjou-mark.svg` and `docs/assets/logo.png` synchronized with its generated transparent SVG and PNG exports; follow the web design document for brand changes.
 - An organization profile is the project overview. Agent instructions belong in each product repository so independent clones have the guidance they need.
 
 ## Build, Test, and Development Commands
