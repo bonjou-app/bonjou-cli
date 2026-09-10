@@ -4,8 +4,9 @@ Decision approved on 2026-09-10: the [Bonjou organization](https://github.com/bo
 owns two public product repositories. The original CLI repository was transferred
 with its history and releases; the extracted web application is deployed at
 [bonjou.vercel.app](https://bonjou.vercel.app). The organization handle is
-`bonjou-app` because `bonjou` was already occupied. Automatic Git deployments
-remain pending the scoped Vercel GitHub app installation; CLI deployments work.
+`bonjou-app` because `bonjou` was already occupied. The existing Vercel project
+is connected to `bonjou-web`; its GitHub app has selected-repository access
+limited to that web repository for automatic deployments.
 
 ## Ownership and boundaries
 

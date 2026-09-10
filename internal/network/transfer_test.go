@@ -211,22 +211,11 @@ type transferHarness struct {
 func newTransferPair(t *testing.T) (*transferHarness, *transferHarness) {
 	t.Helper()
 
-	senderPort := reserveTCPPort(t)
-	receiverPort := reserveTCPPort(t)
+	sender := newTransferHarness(t, "sender", "127.0.0.1", 0, 47320, "shared-secret-for-tests")
+	receiver := newTransferHarness(t, "receiver", "127.0.0.1", 0, 47320, "shared-secret-for-tests")
 
-	sender := newTransferHarness(t, "sender", "127.0.0.1", senderPort, 47320, "shared-secret-for-tests")
-	receiver := newTransferHarness(t, "receiver", "127.0.0.1", receiverPort, 47320, "shared-secret-for-tests")
-
-	linkPeers(t, sender, receiver)
-	linkPeers(t, receiver, sender)
-
-	if err := sender.transfer.Start(sender.cfg.Username, "127.0.0.1"); err != nil {
-		t.Fatalf("start sender transfer: %v", err)
-	}
-	if err := receiver.transfer.Start(receiver.cfg.Username, "127.0.0.1"); err != nil {
-		t.Fatalf("start receiver transfer: %v", err)
-	}
-
+	// Register cleanup before startup so a failed second listener cannot leak
+	// the first listener into later tests.
 	t.Cleanup(func() {
 		sender.transfer.Stop()
 		receiver.transfer.Stop()
@@ -236,7 +225,26 @@ func newTransferPair(t *testing.T) (*transferHarness, *transferHarness) {
 		_ = receiver.log.Close()
 	})
 
+	startTransferHarness(t, sender)
+	startTransferHarness(t, receiver)
+	linkPeers(t, sender, receiver)
+	linkPeers(t, receiver, sender)
 	return sender, receiver
+}
+
+func startTransferHarness(t *testing.T, h *transferHarness) {
+	t.Helper()
+
+	// Probing a free port releases it before Start can bind. Another test or
+	// an outgoing connection can claim it in that gap, so retry a fresh port.
+	var err error
+	for attempt := 0; attempt < 10; attempt++ {
+		h.cfg.ListenPort = reserveTCPPort(t)
+		if err = h.transfer.Start(h.cfg.Username, "127.0.0.1"); err == nil {
+			return
+		}
+	}
+	t.Fatalf("start %s transfer after 10 port attempts: %v", h.cfg.Username, err)
 }
 
 func newTransferHarness(t *testing.T, username, ip string, listenPort, discoveryPort int, secret string) *transferHarness {
@@ -397,20 +405,20 @@ func waitForFileContent(t *testing.T, path, want string) {
 	t.Helper()
 
 	deadline := time.Now().Add(5 * time.Second)
+	var data []byte
 	for time.Now().Before(deadline) {
-		data, err := os.ReadFile(path)
-		if err == nil {
-			if string(data) != want {
-				t.Fatalf("file content = %q, want %q", string(data), want)
-			}
+		var err error
+		data, err = os.ReadFile(path)
+		if err == nil && string(data) == want {
 			return
 		}
-		if !os.IsNotExist(err) {
+		if err != nil && !os.IsNotExist(err) {
 			t.Fatalf("read file %s: %v", path, err)
 		}
+		// File creation precedes the asynchronous payload write.
 		time.Sleep(20 * time.Millisecond)
 	}
-	t.Fatalf("timed out waiting for file %s", path)
+	t.Fatalf("timed out waiting for file %s: content = %q, want %q", path, string(data), want)
 }
 
 func writeSizedFile(t *testing.T, path string, size int) {
@@ -444,7 +452,7 @@ func writeFileString(t *testing.T, path, content string) {
 func reserveTCPPort(t *testing.T) int {
 	t.Helper()
 
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	ln, err := net.Listen("tcp", ":0")
 	if err != nil {
 		t.Fatalf("reserveTCPPort listen failed: %v", err)
 	}

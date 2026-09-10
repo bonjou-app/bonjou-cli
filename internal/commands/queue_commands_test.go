@@ -471,22 +471,11 @@ type commandTransferHarness struct {
 func newCommandTransferPair(t *testing.T) (*commandTransferHarness, *commandTransferHarness) {
 	t.Helper()
 
-	senderPort := reserveTCPPortForCommands(t)
-	receiverPort := reserveTCPPortForCommands(t)
+	sender := newCommandTransferHarness(t, "sender", "127.0.0.1", 0, 47320, "shared-secret-for-command-tests")
+	receiver := newCommandTransferHarness(t, "receiver", "127.0.0.1", 0, 47320, "shared-secret-for-command-tests")
 
-	sender := newCommandTransferHarness(t, "sender", "127.0.0.1", senderPort, 47320, "shared-secret-for-command-tests")
-	receiver := newCommandTransferHarness(t, "receiver", "127.0.0.1", receiverPort, 47320, "shared-secret-for-command-tests")
-
-	linkCommandPeers(t, sender, receiver)
-	linkCommandPeers(t, receiver, sender)
-
-	if err := sender.transfer.Start(sender.cfg.Username, "127.0.0.1"); err != nil {
-		t.Fatalf("start sender transfer: %v", err)
-	}
-	if err := receiver.transfer.Start(receiver.cfg.Username, "127.0.0.1"); err != nil {
-		t.Fatalf("start receiver transfer: %v", err)
-	}
-
+	// Register cleanup before startup so a failed second listener cannot leak
+	// the first listener into later tests.
 	t.Cleanup(func() {
 		sender.transfer.Stop()
 		receiver.transfer.Stop()
@@ -496,7 +485,26 @@ func newCommandTransferPair(t *testing.T) (*commandTransferHarness, *commandTran
 		_ = receiver.log.Close()
 	})
 
+	startCommandTransferHarness(t, sender)
+	startCommandTransferHarness(t, receiver)
+	linkCommandPeers(t, sender, receiver)
+	linkCommandPeers(t, receiver, sender)
 	return sender, receiver
+}
+
+func startCommandTransferHarness(t *testing.T, h *commandTransferHarness) {
+	t.Helper()
+
+	// Probing a free port releases it before Start can bind. Another test or
+	// an outgoing connection can claim it in that gap, so retry a fresh port.
+	var err error
+	for attempt := 0; attempt < 10; attempt++ {
+		h.cfg.ListenPort = reserveTCPPortForCommands(t)
+		if err = h.transfer.Start(h.cfg.Username, "127.0.0.1"); err == nil {
+			return
+		}
+	}
+	t.Fatalf("start %s transfer after 10 port attempts: %v", h.cfg.Username, err)
 }
 
 func newCommandTransferHarness(t *testing.T, username, ip string, listenPort, discoveryPort int, secret string) *commandTransferHarness {
@@ -735,20 +743,20 @@ func waitForFileContentForCommands(t *testing.T, path, want string) {
 	t.Helper()
 
 	deadline := time.Now().Add(5 * time.Second)
+	var data []byte
 	for time.Now().Before(deadline) {
-		data, err := os.ReadFile(path)
-		if err == nil {
-			if string(data) != want {
-				t.Fatalf("file content = %q, want %q", string(data), want)
-			}
+		var err error
+		data, err = os.ReadFile(path)
+		if err == nil && string(data) == want {
 			return
 		}
-		if !os.IsNotExist(err) {
+		if err != nil && !os.IsNotExist(err) {
 			t.Fatalf("read file %s: %v", path, err)
 		}
+		// File creation precedes the asynchronous payload write.
 		time.Sleep(20 * time.Millisecond)
 	}
-	t.Fatalf("timed out waiting for file %s", path)
+	t.Fatalf("timed out waiting for file %s: content = %q, want %q", path, string(data), want)
 }
 
 func (h *commandTransferHarness) transferPendingApprovals() map[string]struct{} {
@@ -758,7 +766,7 @@ func (h *commandTransferHarness) transferPendingApprovals() map[string]struct{} 
 func reserveTCPPortForCommands(t *testing.T) int {
 	t.Helper()
 
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	ln, err := net.Listen("tcp", ":0")
 	if err != nil {
 		t.Fatalf("reserveTCPPortForCommands listen failed: %v", err)
 	}
