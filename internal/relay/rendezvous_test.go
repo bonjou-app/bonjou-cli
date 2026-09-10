@@ -1,12 +1,16 @@
 package relay
 
 import (
+	"bufio"
 	"bytes"
+	"context"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"sync"
 	"testing"
 	"time"
 )
@@ -192,6 +196,133 @@ func TestReceiverDisconnectAfterFullPayloadIsSuccess(t *testing.T) {
 	waitFor(t, x.done, 3*time.Second, "transfer to settle")
 	if err := x.err(); err != nil {
 		t.Fatalf("fully delivered transfer recorded a failure: %v", err)
+	}
+}
+
+type blockedChunkFlush struct {
+	*httptest.ResponseRecorder
+	started chan struct{}
+	release chan struct{}
+	flushed bool
+}
+
+type signalledBody struct {
+	io.ReadCloser
+	started chan struct{}
+	once    sync.Once
+}
+
+func (b *signalledBody) Read(p []byte) (int, error) {
+	b.once.Do(func() { close(b.started) })
+	return b.ReadCloser.Read(p)
+}
+
+func TestAbortInterruptsStalledUploadBody(t *testing.T) {
+	v := NewRendezvous(DefaultLimits(), nil)
+	x, err := v.Begin("sender", "receiver", 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reading := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			v.ServeDownload(w, r, x.id, x.recvToken)
+			return
+		}
+		r.Body = &signalledBody{ReadCloser: r.Body, started: reading}
+		v.ServeUpload(w, r, x.id, x.sendToken, 0)
+	}))
+	defer srv.Close()
+	defer srv.CloseClientConnections()
+	result := startDownload(t, srv, x.id, x.recvToken)
+	waitFor(t, x.ready, 3*time.Second, "receiver to attach")
+	conn, err := net.DialTimeout("tcp", srv.Listener.Addr().String(), 3*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = conn.Close() }()
+	if err := conn.SetDeadline(time.Now().Add(3 * time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	// Declare 100 bytes but send only one, leaving the server blocked on
+	// the upload body while its download handler owns the response writer.
+	if _, err := io.WriteString(conn, "POST / HTTP/1.1\r\nHost: localhost\r\nContent-Length: 100\r\n\r\na"); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, reading, 3*time.Second, "upload to read its body")
+	v.Abort(x.id, errors.New("peer disconnected"))
+	resp, err := http.ReadResponse(bufio.NewReader(conn), nil)
+	if err != nil {
+		t.Fatalf("stalled upload did not respond to abort: %v", err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusBadGateway {
+		t.Errorf("aborted upload = %d, want 502", resp.StatusCode)
+	}
+	if got := <-result; got.err == nil {
+		t.Error("aborted download completed without error")
+	}
+}
+
+func (w *blockedChunkFlush) Flush() {
+	if !w.flushed {
+		w.flushed = true // The first flush sends the response headers.
+		return
+	}
+	close(w.started)
+	<-w.release
+}
+
+func TestDownloadWaitsForChunkFlushBeforeReturning(t *testing.T) {
+	for _, abort := range []bool{false, true} {
+		name := "receiver disconnect"
+		if abort {
+			name = "peer abort"
+		}
+		t.Run(name, func(t *testing.T) {
+			v := NewRendezvous(DefaultLimits(), nil)
+			x, err := v.Begin("sender", "receiver", 4)
+			if err != nil {
+				t.Fatal(err)
+			}
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			dst := &blockedChunkFlush{
+				ResponseRecorder: httptest.NewRecorder(),
+				started:          make(chan struct{}),
+				release:          make(chan struct{}),
+			}
+			downloadDone := make(chan struct{})
+			go func() {
+				v.ServeDownload(dst, httptest.NewRequest(http.MethodGet, "/", nil).WithContext(ctx), x.id, x.recvToken)
+				close(downloadDone)
+			}()
+			<-x.ready
+			uploadDone := make(chan struct{})
+			go func() {
+				v.ServeUpload(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/", bytes.NewReader([]byte("data"))), x.id, x.sendToken, 0)
+				close(uploadDone)
+			}()
+			<-dst.started
+			if abort {
+				v.Abort(x.id, errors.New("peer disconnected"))
+			} else {
+				cancel()
+			}
+			select {
+			case <-downloadDone:
+				t.Error("download handler returned while its response was still in use")
+			case <-time.After(50 * time.Millisecond):
+			}
+			close(dst.release)
+			<-uploadDone
+			<-downloadDone
+			late := httptest.NewRecorder()
+			v.ServeUpload(late, httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(nil)), x.id, x.sendToken, 1)
+			if late.Code != http.StatusGone {
+				t.Errorf("upload after download returned = %d, want 410", late.Code)
+			}
+		})
 	}
 }
 
