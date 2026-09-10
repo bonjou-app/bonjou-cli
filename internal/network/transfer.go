@@ -21,12 +21,12 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/hamzawahab/bonjou-cli/internal/config"
-	"github.com/hamzawahab/bonjou-cli/internal/events"
-	"github.com/hamzawahab/bonjou-cli/internal/format"
-	"github.com/hamzawahab/bonjou-cli/internal/history"
-	"github.com/hamzawahab/bonjou-cli/internal/logger"
-	"github.com/hamzawahab/bonjou-cli/internal/queue"
+	"github.com/bonjou-app/bonjou-cli/internal/config"
+	"github.com/bonjou-app/bonjou-cli/internal/events"
+	"github.com/bonjou-app/bonjou-cli/internal/format"
+	"github.com/bonjou-app/bonjou-cli/internal/history"
+	"github.com/bonjou-app/bonjou-cli/internal/logger"
+	"github.com/bonjou-app/bonjou-cli/internal/queue"
 )
 
 const (

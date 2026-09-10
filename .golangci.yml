@@ -18,4 +18,4 @@ formatters:
   settings:
     goimports:
       local-prefixes:
-        - github.com/hamzawahab/bonjou-cli
+        - github.com/bonjou-app/bonjou-cli

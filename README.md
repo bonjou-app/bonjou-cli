@@ -3,8 +3,8 @@
 
   ### Serverless, internet-free LAN chat and file transfers directly from your terminal.
 
-  [![Go Version](https://img.shields.io/github/go-mod/go-version/hamzaabdulwahab/bonjou-cli?style=flat-square&logo=go)](https://golang.org/)
-  [![Release](https://img.shields.io/github/v/release/hamzaabdulwahab/bonjou-cli?style=flat-square)](https://github.com/hamzaabdulwahab/bonjou-cli/releases)
+  [![Go Version](https://img.shields.io/github/go-mod/go-version/bonjou-app/bonjou-cli?style=flat-square&logo=go)](https://golang.org/)
+  [![Release](https://img.shields.io/github/v/release/bonjou-app/bonjou-cli?style=flat-square)](https://github.com/bonjou-app/bonjou-cli/releases)
   [![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey?style=flat-square)]()
 </div>
 
@@ -50,12 +50,12 @@ Get Bonjou running in under 30 seconds.
 
 **macOS / Linux (One-line install):**
 ```bash
-curl -fsSL https://raw.githubusercontent.com/hamzaabdulwahab/bonjou-cli/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/bonjou-app/bonjou-cli/main/scripts/install.sh | bash
 ```
 
 **Windows (PowerShell):**
 ```powershell
-iwr https://raw.githubusercontent.com/hamzaabdulwahab/bonjou-cli/main/scripts/install.ps1 -useb | iex
+iwr https://raw.githubusercontent.com/bonjou-app/bonjou-cli/main/scripts/install.ps1 -useb | iex
 ```
 
 *(See [Advanced Installation](#-advanced-installation) below for Homebrew, WinGet, Scoop, and Debian packages).*
@@ -144,13 +144,13 @@ scoop install https://raw.githubusercontent.com/hamzaabdulwahab/scoop-bonjou/mai
 
 **AMD64 (Most PCs):**
 ```bash
-wget https://github.com/hamzaabdulwahab/bonjou-cli/releases/download/v1.2.0/bonjou_1.2.0_amd64.deb
+wget https://github.com/bonjou-app/bonjou-cli/releases/download/v1.2.0/bonjou_1.2.0_amd64.deb
 sudo dpkg -i bonjou_1.2.0_amd64.deb
 ```
 
 **ARM64 (Raspberry Pi / Mac VMs):**
 ```bash
-wget https://github.com/hamzaabdulwahab/bonjou-cli/releases/download/v1.2.0/bonjou_1.2.0_arm64.deb
+wget https://github.com/bonjou-app/bonjou-cli/releases/download/v1.2.0/bonjou_1.2.0_arm64.deb
 sudo dpkg -i bonjou_1.2.0_arm64.deb
 ```
 </details>
@@ -213,13 +213,22 @@ What v2 does **not** yet provide (tracked in
 
 ## 💻 Development
 
-Bonjou requires **Go 1.24.0** or newer.
+Bonjou requires **Go 1.25.0** or newer.
+
+This repository contains the CLI and the Go relay. The marketing website and
+browser application live in [bonjou-web](https://github.com/bonjou-app/bonjou-web),
+under the [Bonjou organization](https://github.com/bonjou-app).
+Both repositories build independently. See the
+[repository architecture](docs/repository-architecture.md) for protocol ownership.
+
+Run the web relay locally with `go run ./cmd/bonjou-relay`. Deployment templates
+remain in `packaging/relay/` and `scripts/deploy-relay.sh`.
 
 To build and run the project locally:
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/hamzaabdulwahab/bonjou-cli.git
+git clone https://github.com/bonjou-app/bonjou-cli.git
 cd bonjou-cli
 
 # 2. Run the application
@@ -235,10 +244,9 @@ go run ./cmd/bonjou
 
 Contributions are heavily encouraged! Bonjou is built to be simple, hackable, and maintainable. 
 
-1. Check the [Issue Tracker](https://github.com/hamzaabdulwahab/bonjou-cli/issues) for `good first issue` tags.
+1. Check the [Issue Tracker](https://github.com/bonjou-app/bonjou-cli/issues) for `good first issue` tags.
 2. Fork the repository.
 3. Create your feature branch (`git checkout -b feature/amazing-feature`).
 4. Commit your changes (`git commit -m 'feat: add amazing feature'`).
 5. Push to the branch (`git push origin feature/amazing-feature`).
 6. Open a Pull Request.
-

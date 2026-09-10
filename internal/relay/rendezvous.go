@@ -11,7 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/hamzawahab/bonjou-cli/internal/logger"
+	"github.com/bonjou-app/bonjou-cli/internal/logger"
 )
 
 var (

@@ -1,9 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
-  <!-- Same geometry as Logo.tsx: glyph centred on 12, stem and bowl
-       sharing a baseline at 19.6, and one 2.6 weight throughout.
-       Colours are literal because a favicon loads outside the page. -->
-  <rect width="24" height="24" rx="6.75" fill="oklch(0.56 0.208 32)" />
-  <rect x="6.8" y="4.4" width="2.6" height="15.2" rx="1.3" fill="oklch(0.965 0.006 250)" />
-  <circle cx="12.3" cy="14.6" r="5" fill="oklch(0.965 0.006 250)" />
-  <circle cx="12.3" cy="14.6" r="2.4" fill="oklch(0.56 0.208 32)" />
-</svg>

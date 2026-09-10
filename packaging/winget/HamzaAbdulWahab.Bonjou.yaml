@@ -7,13 +7,13 @@ ManifestVersion: 1.6.0
 PackageName: Bonjou
 Publisher: Hamza Abdul Wahab
 License: MIT
-LicenseUrl: https://github.com/hamzaabdulwahab/bonjou-cli/blob/main/LICENSE
+LicenseUrl: https://github.com/bonjou-app/bonjou-cli/blob/main/LICENSE
 ShortDescription: Terminal-based LAN chat and file transfer for local networks
 Description: |-
   Bonjou is a terminal app for chatting and sending files over a local network
   (LAN/Wi-Fi). No internet required. Peers are auto-discovered on the same
   subnet via UDP broadcast. All transfers are end-to-end encrypted.
-PackageUrl: https://github.com/hamzaabdulwahab/bonjou-cli
+PackageUrl: https://github.com/bonjou-app/bonjou-cli
 Tags:
   - chat
   - cli
@@ -21,7 +21,7 @@ Tags:
   - lan
   - terminal
 Icons:
-  - IconUrl: https://raw.githubusercontent.com/hamzaabdulwahab/bonjou-cli/main/docs/assets/logo.png
+  - IconUrl: https://raw.githubusercontent.com/bonjou-app/bonjou-cli/main/docs/assets/logo.png
     IconFileType: png
     IconResolution: custom
     IconTheme: default
@@ -30,7 +30,7 @@ Icons:
 Installers:
   - Architecture: x64
     InstallerType: portable
-    InstallerUrl: https://github.com/hamzaabdulwahab/bonjou-cli/releases/download/v1.2.0/bonjou.exe
+    InstallerUrl: https://github.com/bonjou-app/bonjou-cli/releases/download/v1.2.0/bonjou.exe
     InstallerSha256: 1891c8063916432cc8fb79901d086ab7e94931cbe9d356a2113f2323bb5221ff
     Commands:
       - bonjou
