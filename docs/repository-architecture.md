@@ -1,10 +1,11 @@
 # Bonjou repository architecture
 
-Decision approved on 2026-09-10: use a GitHub organization with two public
-product repositories. The migration is prepared locally; organization creation,
-repository transfer, and deployment cutover remain pending. `bonjou` is already
-occupied on GitHub, so `bonjou-app` is the proposed organization handle used in
-the prepared source and links.
+Decision approved on 2026-09-10: the [Bonjou organization](https://github.com/bonjou-app)
+owns two public product repositories. The original CLI repository was transferred
+with its history and releases; the extracted web application is deployed at
+[bonjou.vercel.app](https://bonjou.vercel.app). The organization handle is
+`bonjou-app` because `bonjou` was already occupied. Automatic Git deployments
+remain pending the scoped Vercel GitHub app installation; CLI deployments work.
 
 ## Ownership and boundaries
 
@@ -99,12 +100,19 @@ checks found no matches. GitHub reported secret scanning and push protection
 enabled and returned no secret-scanning alerts. This was a limited review,
 not proof that all history, credentials, deployments, or artifacts are safe.
 
-The prepared repositories include secret-file ignore rules with placeholder
-example exceptions, CI, dependency update configuration, contribution guidance,
-MIT notices, and private vulnerability-reporting instructions. The web lockfile
-received compatible security patches; its npm audit reports zero advisories.
-Enable and verify private vulnerability reporting and dependency security updates
-on the final GitHub repositories during provisioning.
+Both repositories include secret-file ignore rules with placeholder example
+exceptions, CI, dependency update configuration, contribution guidance, and MIT
+notices. Secret scanning, push protection, private vulnerability reporting, and
+dependency security updates are enabled. Main branches require pull requests
+and passing CI, with force pushes and branch deletion blocked. No second
+reviewer is required for the current solo-maintainer workflow.
+
+The web lockfile received compatible security patches; its npm audit reports
+zero advisories. The Go crypto dependency was updated to v0.52.0 (and its required
+x/sys v0.45.0) to address GitHub advisories without changing the Go requirement
+or protocol vectors. Windows CI also exposed a Unix-permission assumption and
+a sender-cleanup race in existing tests; the tests now use a portable failure
+condition and wait for the asynchronous completion they assert.
 
 If real credentials are found, revoke or rotate them before relying on deletion
 or history cleanup. Private visibility cannot erase public clones or forks. See
@@ -117,23 +125,18 @@ Git bundle preserves it and the original refs. The web repository preserves
 the history extracted from `website/`; it includes the existing MIT license
 and its own `AGENTS.md`. This repository retains its full original history.
 
-Publish in this order:
+The canonical-vector commit was published before extracting the CLI tree. The
+web repository's CI verifies its pinned canonical source, and the CLI's browser
+compatibility job verifies a pinned web revision against candidate Go vectors
+and relay behavior. Production uses the standalone web source at the root of
+the existing Vercel project, retaining the original domain. The old personal
+repository URL redirects to the organization, and existing release downloads
+remain accessible.
 
-1. Create the organization and transfer the existing CLI repository, retaining
-   its releases, issues, and history. Publish the canonical-vector commit while
-   the old web tree still exists.
-2. Publish the extracted web repository and verify its fixture provenance and
-   CI against the transferred CLI repository.
-3. Connect the existing Vercel project to `bonjou-web` at its repository root.
-   Verify a preview's landing page, `/app`, `/r/{code}`, `/share`, and service
-   worker headers before updating the existing production aliases.
-4. Publish the final CLI extraction after the web deployment has switched.
-   Verify both CI workflows, old URL redirects, and release downloads.
-
-Keep the previous ready Vercel deployment available for rollback. If cutover
-fails, keep or restore that deployment and postpone removing the old web tree
-from the published CLI branch. Revert migration commits normally if necessary;
-do not rewrite shared history. The running production relay is unaffected.
+The previous ready Vercel deployment is retained for rollback. Restore it from
+the existing project if the new web deployment fails. Revert migration commits
+normally if necessary; do not rewrite shared history. The running production
+relay is unaffected.
 
 Both repositories carry their own agent guidance. Shared defaults include
 relevant skills, proportionate verification, explicit protocol coordination,
