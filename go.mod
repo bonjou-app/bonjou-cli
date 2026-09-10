@@ -1,6 +1,6 @@
 module github.com/bonjou-app/bonjou-cli
 
-go 1.25.0
+go 1.26.0
 
 require (
 	github.com/chzyer/readline v1.5.1
@@ -14,7 +14,7 @@ require (
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/coder/websocket v1.8.15
 	golang.org/x/crypto v0.52.0
-	golang.org/x/sys v0.45.0
+	golang.org/x/sys v0.48.0
 )
 
 require (
