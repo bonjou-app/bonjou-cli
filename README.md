@@ -215,7 +215,7 @@ What v2 does **not** yet provide (tracked in
 
 ## 💻 Development
 
-Bonjou requires **Go 1.25.0** or newer.
+Bonjou requires **Go 1.26.0** or newer.
 
 This repository contains the CLI and the Go relay. The marketing website and
 browser application live in [bonjou-web](https://github.com/bonjou-app/bonjou-web),
