@@ -53,10 +53,11 @@ type transfer struct {
 
 	// mu serialises chunk writes. It is deliberately held across the copy:
 	// that is what enforces chunk ordering and propagates backpressure.
-	mu      sync.Mutex
-	dst     io.Writer
-	flush   func() error
-	nextSeq uint64
+	mu           sync.Mutex
+	dst          io.Writer
+	flush        func() error
+	receiverDone <-chan struct{}
+	nextSeq      uint64
 
 	failMu  sync.Mutex
 	failure error
@@ -240,13 +241,24 @@ func (v *Rendezvous) ServeDownload(w http.ResponseWriter, r *http.Request, id, t
 	x.mu.Lock()
 	x.dst = w
 	x.flush = rc.Flush
+	x.receiverDone = r.Context().Done()
 	x.mu.Unlock()
 	x.touch()
 	x.markReady()
 
+	receiverDisconnected := false
 	select {
 	case <-x.done:
 	case <-r.Context().Done():
+		receiverDisconnected = true
+	}
+
+	// Stop a blocked socket write before waiting for the active chunk. The
+	// upload also interrupts its body read when this receiver leaves. The
+	// ResponseWriter must remain alive until both copying and flushing stop.
+	_ = rc.SetWriteDeadline(time.Now())
+	x.mu.Lock()
+	if receiverDisconnected {
 		// A receiver that has taken every declared byte and then hung up
 		// has finished, not failed. Content-Length is satisfied at that
 		// point, so the browser is entitled to close before the sender's
@@ -259,6 +271,9 @@ func (v *Rendezvous) ServeDownload(w http.ResponseWriter, r *http.Request, id, t
 			x.fail(errors.New("receiver disconnected"))
 		}
 	}
+	x.dst = nil
+	x.flush = nil
+	x.mu.Unlock()
 
 	// Declaring Content-Length up front means a failed transfer produces a
 	// short body, which the browser reports as a failed download. That is
@@ -301,6 +316,12 @@ func (v *Rendezvous) ServeUpload(w http.ResponseWriter, r *http.Request, id, tok
 		writeHTTPError(w, http.StatusGone, err)
 		return
 	}
+	select {
+	case <-x.done:
+		writeHTTPError(w, http.StatusGone, errTransferDone)
+		return
+	default:
+	}
 	if seq != x.nextSeq {
 		writeHTTPError(w, http.StatusConflict,
 			fmt.Errorf("out-of-order chunk: got %d, expected %d", seq, x.nextSeq))
@@ -327,6 +348,28 @@ func (v *Rendezvous) ServeUpload(w http.ResponseWriter, r *http.Request, id, tok
 		return
 	}
 
+	// A sender can stall while its receiver disconnects or the transfer is
+	// aborted. Interrupt that read so ServeDownload can release its writer.
+	// Join the watcher before returning so it cannot touch a reused HTTP
+	// connection after this upload handler has ended.
+	rc := http.NewResponseController(w)
+	stopIO := make(chan struct{})
+	ioStopped := make(chan struct{})
+	go func() {
+		defer close(ioStopped)
+		select {
+		case <-x.done:
+		case <-x.receiverDone:
+		case <-stopIO:
+			return
+		}
+		_ = rc.SetReadDeadline(time.Now())
+	}()
+	defer func() {
+		close(stopIO)
+		<-ioStopped
+	}()
+
 	body := http.MaxBytesReader(w, r.Body, v.limits.MaxChunkBytes)
 	n, err := io.Copy(x.dst, body)
 	if n > 0 {
@@ -339,7 +382,16 @@ func (v *Rendezvous) ServeUpload(w http.ResponseWriter, r *http.Request, id, tok
 		return
 	}
 	if x.flush != nil {
-		if err := x.flush(); err != nil {
+		err := x.flush()
+		if err != nil && x.written.Load() == x.size {
+			select {
+			case <-x.receiverDone:
+				// The receiver may close as soon as Content-Length is met.
+				err = nil
+			default:
+			}
+		}
+		if err != nil {
 			x.fail(fmt.Errorf("flush chunk %d: %w", seq, err))
 			writeHTTPError(w, http.StatusBadGateway, err)
 			return
