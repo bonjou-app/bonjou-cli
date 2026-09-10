@@ -232,8 +232,9 @@ func TestApproveSingleFileOfferThroughHandler(t *testing.T) {
 
 	waitForNoPendingFilesForCommands(t, receiver.queue)
 	waitForFileContentForCommands(t, filepath.Join(receiver.cfg.ReceivedFilesDir, "approve-single.txt"), "approve single payload")
-	if got := len(sender.transferPendingApprovals()); got != 0 {
-		t.Fatalf("sender still has %d outgoing approvals after approve", got)
+	// Receiving the bytes can finish before the sender processes the final ack.
+	for requestID := range sender.transferPendingApprovals() {
+		waitForNoOutgoingApprovalForCommands(t, sender.transfer, requestID)
 	}
 }
 
@@ -263,8 +264,8 @@ func TestApproveSingleFolderOfferThroughHandler(t *testing.T) {
 	waitForNoPendingFoldersForCommands(t, receiver.queue)
 	waitForFileContentForCommands(t, filepath.Join(receiver.cfg.ReceivedFoldersDir, "approve-folder", "README.md"), "approve folder readme")
 	waitForFileContentForCommands(t, filepath.Join(receiver.cfg.ReceivedFoldersDir, "approve-folder", "nested", "main.go"), "package main\n")
-	if got := len(sender.transferPendingApprovals()); got != 0 {
-		t.Fatalf("sender still has %d outgoing approvals after folder approve", got)
+	for requestID := range sender.transferPendingApprovals() {
+		waitForNoOutgoingApprovalForCommands(t, sender.transfer, requestID)
 	}
 }
 
@@ -371,8 +372,8 @@ func TestApproveAllRequestsAndReceivesAllPendingFilesThroughHandler(t *testing.T
 	waitForFileContentForCommands(t, filepath.Join(receiver.cfg.ReceivedFilesDir, "first.txt"), "first approve-all payload")
 	waitForFileContentForCommands(t, filepath.Join(receiver.cfg.ReceivedFilesDir, "second.txt"), "second approve-all payload")
 
-	if len(sender.transferPendingApprovals()) != 0 {
-		t.Fatalf("sender still has %d outgoing approvals after approveAll", len(sender.transferPendingApprovals()))
+	for requestID := range sender.transferPendingApprovals() {
+		waitForNoOutgoingApprovalForCommands(t, sender.transfer, requestID)
 	}
 }
 
