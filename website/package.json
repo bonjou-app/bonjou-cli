@@ -32,6 +32,6 @@
     "@types/react-dom": "^18.3.7",
     "playwright": "^1.62.1",
     "typescript": "^5.8.3",
-    "vitest": "^4.1.10"
+    "vitest": "^4.1.11"
   }
 }
