@@ -1,5 +1,7 @@
 <div align="center">
-  <img src="docs/assets/logowithtxt.png" alt="Bonjou logo" width="300"/>
+  <img src="docs/assets/bonjou-mark.svg" alt="Bonjou logo" width="96" height="96"/>
+
+  # Bonjou
 
   ### Serverless, internet-free LAN chat and file transfers directly from your terminal.
 
