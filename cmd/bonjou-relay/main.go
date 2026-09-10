@@ -19,9 +19,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/hamzawahab/bonjou-cli/internal/logger"
-	"github.com/hamzawahab/bonjou-cli/internal/relay"
-	"github.com/hamzawahab/bonjou-cli/internal/version"
+	"github.com/bonjou-app/bonjou-cli/internal/logger"
+	"github.com/bonjou-app/bonjou-cli/internal/relay"
+	"github.com/bonjou-app/bonjou-cli/internal/version"
 )
 
 func main() {

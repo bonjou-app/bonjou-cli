@@ -3,12 +3,12 @@ package session
 import (
 	"sync"
 
-	"github.com/hamzawahab/bonjou-cli/internal/config"
-	"github.com/hamzawahab/bonjou-cli/internal/events"
-	"github.com/hamzawahab/bonjou-cli/internal/history"
-	"github.com/hamzawahab/bonjou-cli/internal/logger"
-	"github.com/hamzawahab/bonjou-cli/internal/network"
-	"github.com/hamzawahab/bonjou-cli/internal/queue"
+	"github.com/bonjou-app/bonjou-cli/internal/config"
+	"github.com/bonjou-app/bonjou-cli/internal/events"
+	"github.com/bonjou-app/bonjou-cli/internal/history"
+	"github.com/bonjou-app/bonjou-cli/internal/logger"
+	"github.com/bonjou-app/bonjou-cli/internal/network"
+	"github.com/bonjou-app/bonjou-cli/internal/queue"
 )
 
 // Session wires together Bonjou runtime services.

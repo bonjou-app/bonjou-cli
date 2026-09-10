@@ -5,7 +5,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/hamzawahab/bonjou-cli/internal/network"
+	"github.com/bonjou-app/bonjou-cli/internal/network"
 )
 
 func TestWizardTeaFilterClampsSmallWindowSize(t *testing.T) {

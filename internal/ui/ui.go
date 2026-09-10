@@ -15,10 +15,10 @@ import (
 	runewidth "github.com/mattn/go-runewidth"
 	"golang.org/x/term"
 
-	"github.com/hamzawahab/bonjou-cli/internal/commands"
-	"github.com/hamzawahab/bonjou-cli/internal/events"
-	"github.com/hamzawahab/bonjou-cli/internal/session"
-	"github.com/hamzawahab/bonjou-cli/internal/version"
+	"github.com/bonjou-app/bonjou-cli/internal/commands"
+	"github.com/bonjou-app/bonjou-cli/internal/events"
+	"github.com/bonjou-app/bonjou-cli/internal/session"
+	"github.com/bonjou-app/bonjou-cli/internal/version"
 )
 
 const (

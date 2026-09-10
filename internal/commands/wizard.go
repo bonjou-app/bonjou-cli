@@ -16,7 +16,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"golang.org/x/term"
 
-	"github.com/hamzawahab/bonjou-cli/internal/network"
+	"github.com/bonjou-app/bonjou-cli/internal/network"
 )
 
 // This file holds everything that belongs to the @wizard subsystem: the

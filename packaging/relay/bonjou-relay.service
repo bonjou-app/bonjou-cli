@@ -1,6 +1,6 @@
 [Unit]
 Description=Bonjou web relay
-Documentation=https://github.com/hamzaabdulwahab/bonjou-cli
+Documentation=https://github.com/bonjou-app/bonjou-cli
 After=network-online.target
 Wants=network-online.target
 

@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hamzawahab/bonjou-cli/internal/format"
-	"github.com/hamzawahab/bonjou-cli/internal/queue"
+	"github.com/bonjou-app/bonjou-cli/internal/format"
+	"github.com/bonjou-app/bonjou-cli/internal/queue"
 )
 
 type pendingKind string

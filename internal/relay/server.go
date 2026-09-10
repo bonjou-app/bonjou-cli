@@ -12,7 +12,7 @@ import (
 
 	"github.com/coder/websocket"
 
-	"github.com/hamzawahab/bonjou-cli/internal/logger"
+	"github.com/bonjou-app/bonjou-cli/internal/logger"
 )
 
 // tokenHeader carries a transfer's bearer token. The download half also

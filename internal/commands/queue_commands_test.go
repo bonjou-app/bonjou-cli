@@ -15,13 +15,13 @@ import (
 	"time"
 	"unsafe"
 
-	"github.com/hamzawahab/bonjou-cli/internal/config"
-	"github.com/hamzawahab/bonjou-cli/internal/events"
-	"github.com/hamzawahab/bonjou-cli/internal/history"
-	"github.com/hamzawahab/bonjou-cli/internal/logger"
-	"github.com/hamzawahab/bonjou-cli/internal/network"
-	"github.com/hamzawahab/bonjou-cli/internal/queue"
-	"github.com/hamzawahab/bonjou-cli/internal/session"
+	"github.com/bonjou-app/bonjou-cli/internal/config"
+	"github.com/bonjou-app/bonjou-cli/internal/events"
+	"github.com/bonjou-app/bonjou-cli/internal/history"
+	"github.com/bonjou-app/bonjou-cli/internal/logger"
+	"github.com/bonjou-app/bonjou-cli/internal/network"
+	"github.com/bonjou-app/bonjou-cli/internal/queue"
+	"github.com/bonjou-app/bonjou-cli/internal/session"
 )
 
 func TestPendingMetadataOfferSurvivesRestartAndCanBeRejectedViaHandler(t *testing.T) {
@@ -232,8 +232,9 @@ func TestApproveSingleFileOfferThroughHandler(t *testing.T) {
 
 	waitForNoPendingFilesForCommands(t, receiver.queue)
 	waitForFileContentForCommands(t, filepath.Join(receiver.cfg.ReceivedFilesDir, "approve-single.txt"), "approve single payload")
-	if got := len(sender.transferPendingApprovals()); got != 0 {
-		t.Fatalf("sender still has %d outgoing approvals after approve", got)
+	// Receiving the bytes can finish before the sender processes the final ack.
+	for requestID := range sender.transferPendingApprovals() {
+		waitForNoOutgoingApprovalForCommands(t, sender.transfer, requestID)
 	}
 }
 
@@ -263,8 +264,8 @@ func TestApproveSingleFolderOfferThroughHandler(t *testing.T) {
 	waitForNoPendingFoldersForCommands(t, receiver.queue)
 	waitForFileContentForCommands(t, filepath.Join(receiver.cfg.ReceivedFoldersDir, "approve-folder", "README.md"), "approve folder readme")
 	waitForFileContentForCommands(t, filepath.Join(receiver.cfg.ReceivedFoldersDir, "approve-folder", "nested", "main.go"), "package main\n")
-	if got := len(sender.transferPendingApprovals()); got != 0 {
-		t.Fatalf("sender still has %d outgoing approvals after folder approve", got)
+	for requestID := range sender.transferPendingApprovals() {
+		waitForNoOutgoingApprovalForCommands(t, sender.transfer, requestID)
 	}
 }
 
@@ -371,8 +372,8 @@ func TestApproveAllRequestsAndReceivesAllPendingFilesThroughHandler(t *testing.T
 	waitForFileContentForCommands(t, filepath.Join(receiver.cfg.ReceivedFilesDir, "first.txt"), "first approve-all payload")
 	waitForFileContentForCommands(t, filepath.Join(receiver.cfg.ReceivedFilesDir, "second.txt"), "second approve-all payload")
 
-	if len(sender.transferPendingApprovals()) != 0 {
-		t.Fatalf("sender still has %d outgoing approvals after approveAll", len(sender.transferPendingApprovals()))
+	for requestID := range sender.transferPendingApprovals() {
+		waitForNoOutgoingApprovalForCommands(t, sender.transfer, requestID)
 	}
 }
 

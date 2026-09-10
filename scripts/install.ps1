@@ -1,6 +1,6 @@
 # Bonjou installer for Windows.
 #
-#   iwr https://raw.githubusercontent.com/hamzaabdulwahab/bonjou-cli/main/scripts/install.ps1 -useb | iex
+#   iwr https://raw.githubusercontent.com/bonjou-app/bonjou-cli/main/scripts/install.ps1 -useb | iex
 #
 # Tries WinGet, then Scoop, then a direct download. Every path reports what
 # actually failed rather than surfacing a raw .NET exception, because the
@@ -9,7 +9,7 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$Repo = 'hamzaabdulwahab/bonjou-cli'
+$Repo = 'bonjou-app/bonjou-cli'
 $WinGetId = 'HamzaAbdulWahab.Bonjou'
 $ScoopManifestUrl = 'https://raw.githubusercontent.com/hamzaabdulwahab/scoop-bonjou/main/bonjou.json'
 

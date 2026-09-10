@@ -7,16 +7,16 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/hamzawahab/bonjou-cli/internal/commands"
-	"github.com/hamzawahab/bonjou-cli/internal/config"
-	"github.com/hamzawahab/bonjou-cli/internal/events"
-	"github.com/hamzawahab/bonjou-cli/internal/history"
-	"github.com/hamzawahab/bonjou-cli/internal/logger"
-	"github.com/hamzawahab/bonjou-cli/internal/network"
-	"github.com/hamzawahab/bonjou-cli/internal/queue"
-	"github.com/hamzawahab/bonjou-cli/internal/session"
-	"github.com/hamzawahab/bonjou-cli/internal/ui"
-	"github.com/hamzawahab/bonjou-cli/internal/version"
+	"github.com/bonjou-app/bonjou-cli/internal/commands"
+	"github.com/bonjou-app/bonjou-cli/internal/config"
+	"github.com/bonjou-app/bonjou-cli/internal/events"
+	"github.com/bonjou-app/bonjou-cli/internal/history"
+	"github.com/bonjou-app/bonjou-cli/internal/logger"
+	"github.com/bonjou-app/bonjou-cli/internal/network"
+	"github.com/bonjou-app/bonjou-cli/internal/queue"
+	"github.com/bonjou-app/bonjou-cli/internal/session"
+	"github.com/bonjou-app/bonjou-cli/internal/ui"
+	"github.com/bonjou-app/bonjou-cli/internal/version"
 )
 
 func main() {

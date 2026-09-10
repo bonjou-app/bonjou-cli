@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hamzawahab/bonjou-cli/internal/network"
+	"github.com/bonjou-app/bonjou-cli/internal/network"
 )
 
 // resolvePeer turns a user-supplied target (username, IP, hostname) into a

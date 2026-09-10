@@ -158,9 +158,6 @@ func TestManagerLoadDropsInvalidNamesAndKeepsSnapshotReadable(t *testing.T) {
 // queue is no longer durable, but discarding the offer turns a recoverable
 // disk problem into a lost transfer the user was never told about.
 func TestAddKeepsItemWhenSnapshotWriteFails(t *testing.T) {
-	if os.Geteuid() == 0 {
-		t.Skip("running as root bypasses the permission that makes the write fail")
-	}
 	base := t.TempDir()
 	mgr, err := NewManager(base)
 	if err != nil {
@@ -168,12 +165,13 @@ func TestAddKeepsItemWhenSnapshotWriteFails(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = mgr.Close() })
 
-	// Make the snapshot directory unwritable so saveLocked fails.
-	dir := filepath.Join(base, pendingDirName)
-	if err := os.Chmod(dir, 0o500); err != nil {
-		t.Fatalf("Chmod: %v", err)
+	// A regular file cannot contain a snapshot. This fails on Windows too,
+	// where Chmod does not enforce Unix directory permissions, and as root.
+	blocked := filepath.Join(base, "not-a-directory")
+	if err := os.WriteFile(blocked, nil, 0o600); err != nil {
+		t.Fatalf("create blocking file: %v", err)
 	}
-	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
+	mgr.snapshotPath = filepath.Join(blocked, snapshotFileName)
 
 	id, err := mgr.AddFile("req-1", "ada", "192.0.2.1", "important.pdf", 1024, "")
 	if err != nil {

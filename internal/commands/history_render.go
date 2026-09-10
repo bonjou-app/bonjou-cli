@@ -7,7 +7,7 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/hamzawahab/bonjou-cli/internal/history"
+	"github.com/bonjou-app/bonjou-cli/internal/history"
 )
 
 // History rendering builds a fixed-width ASCII table from history.Entry

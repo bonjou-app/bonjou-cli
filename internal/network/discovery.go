@@ -9,8 +9,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/hamzawahab/bonjou-cli/internal/config"
-	"github.com/hamzawahab/bonjou-cli/internal/logger"
+	"github.com/bonjou-app/bonjou-cli/internal/config"
+	"github.com/bonjou-app/bonjou-cli/internal/logger"
 )
 
 // Peer represents an active Bonjou device on the LAN.

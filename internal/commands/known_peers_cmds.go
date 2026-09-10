@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/hamzawahab/bonjou-cli/internal/network"
+	"github.com/bonjou-app/bonjou-cli/internal/network"
 )
 
 // cmdFingerprint shows the local public-key fingerprint (so the user can

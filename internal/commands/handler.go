@@ -20,7 +20,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/hamzawahab/bonjou-cli/internal/session"
+	"github.com/bonjou-app/bonjou-cli/internal/session"
 )
 
 var ErrUnknownCommand = errors.New("unknown command")
