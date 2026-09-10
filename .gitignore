@@ -6,6 +6,19 @@ dist/
 .superset/
 /bonjou
 /bonjou.exe
+/bonjou-relay
+/bonjou-relay.exe
+
+# Local configuration and credentials (examples must contain placeholders only)
+.env
+.env.*
+!.env.example
+!.env.*.example
+.bonjou/
+*.pem
+*.key
+*.p12
+*.pfx
 
 # Node / web
 node_modules/
