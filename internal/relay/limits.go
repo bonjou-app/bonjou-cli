@@ -6,53 +6,31 @@ import (
 )
 
 // Limits bounds what a single client, or the internet at large, can make
-// the relay do. Every field has a defensive default; zero values are
+// the coordinator do. Every field has a defensive default; zero values are
 // replaced by DefaultLimits at construction.
 type Limits struct {
 	// MaxRooms caps concurrent rooms process-wide.
 	MaxRooms int
-	// MaxPeersPerRoom caps roster size. Small on purpose: a share room is
-	// two or three devices, not a chat channel.
+	// MaxPeersPerRoom caps an explicitly joined room.
 	MaxPeersPerRoom int
-	// MaxNetworkPeers caps an auto-grouped network room. One Wi-Fi network
-	// holds a handful of devices; a much larger group means the shared
-	// public address is carrier-grade NAT, where "same address" does not
-	// mean "same room". Past the cap the relay stops grouping rather than
-	// introducing strangers to each other.
+	// MaxNetworkPeers caps an auto-grouped candidate set. Candidates do not
+	// become visible until a host-only WebRTC connection proves that they can
+	// reach one another directly on the local network.
 	MaxNetworkPeers int
 	// RoomIdleTTL is how long a room survives with no traffic.
 	RoomIdleTTL time.Duration
 	// CreatePerIPPerMin throttles room creation per source address.
 	CreatePerIPPerMin int
-	// MaxTransferBytes caps one transfer. Mirrors the CLI's
-	// max_incoming_bytes default so both halves of the product agree on
-	// what "too big" means.
-	MaxTransferBytes int64
-	// MaxChunkBytes caps one uploaded chunk, bounding the memory a
-	// malicious sender can make a single request occupy.
-	MaxChunkBytes int64
-	// RendezvousWait is how long one half of a transfer waits for its
-	// counterpart to attach before giving up.
-	RendezvousWait time.Duration
-	// TransferIdleTTL fails a transfer that stops making progress.
-	TransferIdleTTL time.Duration
-	// MaxConcurrentTransfers caps in-flight transfers process-wide.
-	MaxConcurrentTransfers int
 }
 
 // DefaultLimits returns production defaults sized for a 4-core, 24 GB box.
 func DefaultLimits() Limits {
 	return Limits{
-		MaxRooms:               5000,
-		MaxPeersPerRoom:        8,
-		MaxNetworkPeers:        12,
-		RoomIdleTTL:            30 * time.Minute,
-		CreatePerIPPerMin:      20,
-		MaxTransferBytes:       16 << 30, // 16 GiB, matching config.MaxIncomingBytes
-		MaxChunkBytes:          32 << 20, // 32 MiB, 4x the client's 8 MiB target
-		RendezvousWait:         30 * time.Second,
-		TransferIdleTTL:        60 * time.Second,
-		MaxConcurrentTransfers: 256,
+		MaxRooms:          5000,
+		MaxPeersPerRoom:   128,
+		MaxNetworkPeers:   128,
+		RoomIdleTTL:       30 * time.Minute,
+		CreatePerIPPerMin: 20,
 	}
 }
 
@@ -72,21 +50,6 @@ func (l Limits) withDefaults() Limits {
 	}
 	if l.CreatePerIPPerMin <= 0 {
 		l.CreatePerIPPerMin = d.CreatePerIPPerMin
-	}
-	if l.MaxTransferBytes <= 0 {
-		l.MaxTransferBytes = d.MaxTransferBytes
-	}
-	if l.MaxChunkBytes <= 0 {
-		l.MaxChunkBytes = d.MaxChunkBytes
-	}
-	if l.RendezvousWait <= 0 {
-		l.RendezvousWait = d.RendezvousWait
-	}
-	if l.TransferIdleTTL <= 0 {
-		l.TransferIdleTTL = d.TransferIdleTTL
-	}
-	if l.MaxConcurrentTransfers <= 0 {
-		l.MaxConcurrentTransfers = d.MaxConcurrentTransfers
 	}
 	return l
 }

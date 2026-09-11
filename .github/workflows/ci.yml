@@ -38,7 +38,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: bonjou-app/bonjou-web
-          ref: 09f0869352d6d22a11f2a2185003fd4d4ef13875
+          ref: 59e2f8a7fd3ad17697075889693c89bcf08b1521
           path: web
           persist-credentials: false
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -55,7 +55,7 @@ jobs:
           npm ci --prefix web
           cp cli/internal/network/testdata/protocol-v2.json web/src/share/vectors/protocol-v2.json
           npm test --prefix web
-      - name: Check encrypted transfers through the Go relay
+      - name: Check coordinator membership and encrypted signaling
         working-directory: cli
         shell: bash
         run: |
@@ -68,4 +68,4 @@ jobs:
             if curl -fsS http://127.0.0.1:46330/healthz >/dev/null; then break; fi
             sleep 1
           done
-          npm run smoke --prefix ../web
+          COORDINATOR=http://127.0.0.1:46330 npm run smoke --prefix ../web

@@ -15,14 +15,14 @@ func TestHubCreateAndLookupRoom(t *testing.T) {
 		t.Fatalf("CreateRoom: %v", err)
 	}
 	// A user retyping the code casually must still land in the room.
-	found, err := h.Room(strings.ToLower(room.Code))
+	found, err := h.Room(strings.ToLower(room.Code), "192.0.2.1")
 	if err != nil {
 		t.Fatalf("Room: %v", err)
 	}
 	if found != room {
 		t.Fatal("lookup returned a different room")
 	}
-	if _, err := h.Room("BBB-CCC"); !errors.Is(err, errRoomNotFound) {
+	if _, err := h.Room("BBB-CCC", "192.0.2.1"); !errors.Is(err, errRoomNotFound) {
 		t.Fatalf("unknown code error = %v, want errRoomNotFound", err)
 	}
 }
@@ -34,7 +34,7 @@ func TestHubDropRemovesRoom(t *testing.T) {
 		t.Fatalf("CreateRoom: %v", err)
 	}
 	h.Drop(room.Code)
-	if _, err := h.Room(room.Code); !errors.Is(err, errRoomNotFound) {
+	if _, err := h.Room(room.Code, "192.0.2.1"); !errors.Is(err, errRoomNotFound) {
 		t.Fatalf("after Drop, lookup error = %v, want errRoomNotFound", err)
 	}
 	if h.Rooms() != 0 {
@@ -51,18 +51,18 @@ func TestRoomRejectsPeersBeyondLimit(t *testing.T) {
 		t.Fatalf("CreateRoom: %v", err)
 	}
 	for i := 0; i < 2; i++ {
-		if err := room.Add(newPeer(strconv.Itoa(i), "peer", "")); err != nil {
+		if err := room.Add(newPeer(strconv.Itoa(i), "")); err != nil {
 			t.Fatalf("Add %d: %v", i, err)
 		}
 	}
-	if err := room.Add(newPeer("overflow", "peer", "")); !errors.Is(err, errRoomFull) {
+	if err := room.Add(newPeer("overflow", "")); !errors.Is(err, errRoomFull) {
 		t.Fatalf("third Add error = %v, want errRoomFull", err)
 	}
 }
 
 func TestRoomRemoveReportsEmpty(t *testing.T) {
 	room := newRoom("7K2-9QX", "7K2-9QX", roomKindCode, 8)
-	a, b := newPeer("a", "A", ""), newPeer("b", "B", "")
+	a, b := newPeer("a", ""), newPeer("b", "")
 	if err := room.Add(a); err != nil {
 		t.Fatalf("Add a: %v", err)
 	}
@@ -80,7 +80,7 @@ func TestRoomRemoveReportsEmpty(t *testing.T) {
 // A peer sees everyone else in the room, never itself.
 func TestReachableExcludesSelf(t *testing.T) {
 	room := newRoom("7K2-9QX", "7K2-9QX", roomKindCode, 8)
-	ada, bo := newPeer("a", "Ada", "aa"), newPeer("b", "Bo", "bb")
+	ada, bo := newPeer("a", "aa"), newPeer("b", "bb")
 	for _, p := range []*Peer{ada, bo} {
 		if err := room.Add(p); err != nil {
 			t.Fatalf("Add: %v", err)
@@ -90,8 +90,8 @@ func TestReachableExcludesSelf(t *testing.T) {
 	if len(reachable) != 1 {
 		t.Fatalf("Ada sees %d peers, want 1", len(reachable))
 	}
-	if reachable[0].ID != "b" || reachable[0].Name != "Bo" {
-		t.Fatalf("Ada sees %+v, want Bo", reachable[0])
+	if reachable[0].ID != "b" || reachable[0].PubKey != "bb" {
+		t.Fatalf("Ada sees %+v, want peer b", reachable[0])
 	}
 	if reachable[0].Source != roomKindCode {
 		t.Fatalf("source = %q, want %q", reachable[0].Source, roomKindCode)
@@ -104,9 +104,9 @@ func TestReachableUnionsNetworkAndCodeRooms(t *testing.T) {
 	net := newRoom("net:abc", "", roomKindNetwork, 12)
 	code := newRoom("7K2-9QX", "7K2-9QX", roomKindCode, 8)
 
-	me := newPeer("me", "Me", "00")
-	neighbour := newPeer("n", "Neighbour", "11")
-	invitee := newPeer("i", "Invitee", "22")
+	me := newPeer("me", "00")
+	neighbour := newPeer("n", "11")
+	invitee := newPeer("i", "22")
 
 	for _, p := range []*Peer{me, neighbour} {
 		if err := net.Add(p); err != nil {
@@ -150,7 +150,7 @@ func TestReachableUnionsNetworkAndCodeRooms(t *testing.T) {
 func TestReachableDeduplicatesAcrossRooms(t *testing.T) {
 	net := newRoom("net:abc", "", roomKindNetwork, 12)
 	code := newRoom("7K2-9QX", "7K2-9QX", roomKindCode, 8)
-	me, both := newPeer("me", "Me", "00"), newPeer("b", "Both", "11")
+	me, both := newPeer("me", "00"), newPeer("b", "11")
 	for _, room := range []*Room{net, code} {
 		for _, p := range []*Peer{me, both} {
 			if err := room.Add(p); err != nil {
@@ -168,7 +168,7 @@ func TestReachableDeduplicatesAcrossRooms(t *testing.T) {
 }
 
 // Carrier-grade NAT can put hundreds of unrelated people behind one
-// address. Past the cap the relay must stop grouping rather than
+// address. Past the cap the coordinator must stop grouping rather than
 // introduce strangers to each other.
 func TestNetworkRoomStopsGroupingPastCap(t *testing.T) {
 	limits := DefaultLimits()
@@ -180,11 +180,11 @@ func TestNetworkRoomStopsGroupingPastCap(t *testing.T) {
 		t.Fatalf("NetworkRoom: %v", err)
 	}
 	for i := 0; i < 2; i++ {
-		if err := room.Add(newPeer(strconv.Itoa(i), "peer", "")); err != nil {
+		if err := room.Add(newPeer(strconv.Itoa(i), "")); err != nil {
 			t.Fatalf("Add %d: %v", i, err)
 		}
 	}
-	if err := room.Add(newPeer("overflow", "peer", "")); !errors.Is(err, errNetworkBusy) {
+	if err := room.Add(newPeer("overflow", "")); !errors.Is(err, errNetworkBusy) {
 		t.Fatalf("Add past cap = %v, want errNetworkBusy", err)
 	}
 }
@@ -212,6 +212,62 @@ func TestNetworkRoomGroupsByAddress(t *testing.T) {
 	}
 }
 
+func TestNetworkRoomGroupsIPv6ByPrefix(t *testing.T) {
+	h := NewHub(DefaultLimits(), nil)
+	a, err := h.NetworkRoom("2001:db8:abcd:12::1")
+	if err != nil {
+		t.Fatalf("NetworkRoom: %v", err)
+	}
+	samePrefix, err := h.NetworkRoom("2001:db8:abcd:12:ffff::9")
+	if err != nil {
+		t.Fatalf("NetworkRoom: %v", err)
+	}
+	if a != samePrefix {
+		t.Fatal("IPv6 addresses in the same /64 produced different rooms")
+	}
+	otherPrefix, err := h.NetworkRoom("2001:db8:abcd:13::1")
+	if err != nil {
+		t.Fatalf("NetworkRoom: %v", err)
+	}
+	if a == otherPrefix {
+		t.Fatal("IPv6 addresses in different /64 prefixes were grouped")
+	}
+}
+
+func TestCodeRoomCannotBridgeNetworks(t *testing.T) {
+	h := NewHub(DefaultLimits(), nil)
+	room, err := h.CreateRoom("203.0.113.9")
+	if err != nil {
+		t.Fatalf("CreateRoom: %v", err)
+	}
+	if _, err := h.Room(room.Code, "203.0.113.9"); err != nil {
+		t.Fatalf("same-network lookup: %v", err)
+	}
+	if _, err := h.Room(room.Code, "198.51.100.4"); !errors.Is(err, errNetworkMatch) {
+		t.Fatalf("different-network lookup error = %v, want errNetworkMatch", err)
+	}
+}
+
+func TestDefaultLimitsSupportOneHundredLANPeers(t *testing.T) {
+	limits := DefaultLimits()
+	if limits.MaxNetworkPeers < 100 {
+		t.Fatalf("MaxNetworkPeers = %d, want at least 100", limits.MaxNetworkPeers)
+	}
+	h := NewHub(limits, nil)
+	room, err := h.NetworkRoom("203.0.113.9")
+	if err != nil {
+		t.Fatalf("NetworkRoom: %v", err)
+	}
+	for i := 0; i < 100; i++ {
+		if err := room.Add(newPeer(strconv.Itoa(i), "key")); err != nil {
+			t.Fatalf("Add peer %d: %v", i, err)
+		}
+	}
+	if got := room.size(); got != 100 {
+		t.Fatalf("room size = %d, want 100", got)
+	}
+}
+
 // The room table must not double as a list of who is online from where.
 func TestNetworkKeyDoesNotLeakAddress(t *testing.T) {
 	h := NewHub(DefaultLimits(), nil)
@@ -234,7 +290,7 @@ func TestRoomLookupRejectsNetworkRooms(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NetworkRoom: %v", err)
 	}
-	if _, err := h.Room(room.Key); !errors.Is(err, errRoomNotFound) {
+	if _, err := h.Room(room.Key, "203.0.113.9"); !errors.Is(err, errRoomNotFound) {
 		t.Fatalf("network room resolved by code lookup: %v", err)
 	}
 }
@@ -247,7 +303,7 @@ func TestHubSweepExpiresIdleRooms(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateRoom: %v", err)
 	}
-	peer := newPeer("a", "Ada", "")
+	peer := newPeer("a", "")
 	if err := room.Add(peer); err != nil {
 		t.Fatalf("Add: %v", err)
 	}
@@ -290,9 +346,9 @@ func TestRoomTouchDefersExpiry(t *testing.T) {
 }
 
 // A client that stops reading its socket must not be able to make the
-// relay buffer for it indefinitely.
+// coordinator buffer for it indefinitely.
 func TestPeerSendClosesSlowClient(t *testing.T) {
-	p := newPeer("a", "Ada", "")
+	p := newPeer("a", "")
 	for i := 0; i < peerSendBuffer; i++ {
 		p.Send(&serverMessage{Type: msgRoster})
 	}
@@ -310,7 +366,7 @@ func TestPeerSendClosesSlowClient(t *testing.T) {
 }
 
 func TestPeerCloseIsIdempotent(t *testing.T) {
-	p := newPeer("a", "Ada", "")
+	p := newPeer("a", "")
 	p.Close()
 	p.Close()
 	select {
@@ -380,34 +436,6 @@ func TestHubCapacity(t *testing.T) {
 	}
 }
 
-func TestSanitizeName(t *testing.T) {
-	tests := []struct {
-		name string
-		in   string
-		want string
-	}{
-		{"plain", "Ada", "Ada"},
-		{"trims", "  Ada  ", "Ada"},
-		{"strips control characters", "Ada\x1b[31m", "Ada[31m"},
-		{"strips newlines", "Ada\nLovelace", "AdaLovelace"},
-		{"empty", "   ", ""},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := sanitizeName(tc.in); got != tc.want {
-				t.Errorf("sanitizeName(%q) = %q, want %q", tc.in, got, tc.want)
-			}
-		})
-	}
-	long := make([]rune, maxNameLen+50)
-	for i := range long {
-		long[i] = 'x'
-	}
-	if got := sanitizeName(string(long)); len([]rune(got)) != maxNameLen {
-		t.Errorf("long name length = %d, want %d", len([]rune(got)), maxNameLen)
-	}
-}
-
 func TestCodeForError(t *testing.T) {
 	tests := []struct {
 		err  error
@@ -416,6 +444,8 @@ func TestCodeForError(t *testing.T) {
 		{errRoomNotFound, errCodeNoRoom},
 		{errRoomFull, errCodeRoomFull},
 		{errNetworkBusy, errCodeNetworkBusy},
+		{errNetworkMatch, errCodeNetworkMatch},
+		{errUnsupported, errCodeUnsupported},
 		{errPeerNotFound, errCodeNoPeer},
 		{errRateLimited, errCodeRateLimited},
 		{errAtCapacity, errCodeCapacity},

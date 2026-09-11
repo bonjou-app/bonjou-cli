@@ -5,7 +5,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/coder/websocket"
@@ -13,15 +12,15 @@ import (
 )
 
 const (
-	// wsReadLimit bounds one control frame. Frames carry sealed envelopes
-	// — offers, approvals, chat — never file payloads, so 1 MiB is
-	// generous. File bytes travel over the data plane instead.
-	wsReadLimit = 1 << 20
+	// wsReadLimit bounds one coordinator frame. It carries only a small
+	// encrypted WebRTC description or ICE candidate, never app data.
+	wsReadLimit = 128 << 10
+
+	maxSignalPayloadLen = 96 << 10
 
 	wsWriteTimeout = 10 * time.Second
 	wsPingInterval = 30 * time.Second
 
-	maxNameLen   = 64
 	pubKeyHexLen = 64 // X25519 public key: 32 bytes
 )
 
@@ -30,7 +29,6 @@ const (
 type Conn struct {
 	ws   *websocket.Conn
 	hub  *Hub
-	rv   *Rendezvous
 	ip   string
 	peer *Peer
 
@@ -38,12 +36,12 @@ type Conn struct {
 	codeRoom *Room
 }
 
-func newConn(ws *websocket.Conn, hub *Hub, rv *Rendezvous, ip string) (*Conn, error) {
+func newConn(ws *websocket.Conn, hub *Hub, ip string) (*Conn, error) {
 	id, err := newID()
 	if err != nil {
 		return nil, err
 	}
-	return &Conn{ws: ws, hub: hub, rv: rv, ip: ip, peer: newPeer(id, "", "")}, nil
+	return &Conn{ws: ws, hub: hub, ip: ip, peer: newPeer(id, "")}, nil
 }
 
 // run drives the read loop until the client disconnects or misbehaves.
@@ -110,32 +108,32 @@ func (c *Conn) handle(msg *clientMessage) error {
 		return c.handleCreate(msg)
 	case msgJoin:
 		return c.handleJoin(msg)
-	case msgRelay:
-		return c.handleRelay(msg)
-	case msgTransferBegin:
-		return c.handleTransferBegin(msg)
-	case msgTransferEnd:
-		return c.handleTransferEnd(msg)
+	case msgSignal:
+		return c.handleSignal(msg)
+	case "relay", "transfer_begin", "transfer_end":
+		return errUnsupported
 	default:
 		return fmt.Errorf("unknown message type %q", msg.Type)
 	}
 }
 
 // handleHello is the entry point every client uses. It establishes the
-// peer's identity and places it in the room shared by everyone reaching
-// the relay from the same public address — the browser's stand-in for the
+// peer's session key and places it in the candidate group shared by everyone
+// reaching the coordinator from the same source address. It is the browser's stand-in for the
 // LAN broadcast the CLI uses, which no browser can send.
 //
 // Being unable to group by network is not an error the user can act on:
 // they still get a working page, just without automatic neighbours, so it
 // resolves to an empty roster with a reason rather than a failure.
 func (c *Conn) handleHello(msg *clientMessage) error {
-	if c.peer.Name == "" {
-		if err := c.adoptIdentity(msg); err != nil {
+	if c.peer.PubKey == "" {
+		if err := c.adoptKey(msg.PubKey); err != nil {
 			return err
 		}
+	} else if msg.PubKey != "" && msg.PubKey != c.peer.PubKey {
+		return errors.New("public key cannot change during a session")
 	}
-	if c.netRoom != nil {
+	if c.netRoom != nil || c.codeRoom != nil {
 		c.peer.Send(rosterFor(c.peer))
 		return nil
 	}
@@ -161,8 +159,8 @@ func (c *Conn) handleCreate(msg *clientMessage) error {
 	if c.codeRoom != nil {
 		return errAlreadyInRoom
 	}
-	if err := c.adoptIdentity(msg); err != nil {
-		return err
+	if c.peer.PubKey == "" {
+		return errNotInRoom
 	}
 	room, err := c.hub.CreateRoom(c.ip)
 	if err != nil {
@@ -172,10 +170,10 @@ func (c *Conn) handleCreate(msg *clientMessage) error {
 		c.hub.Drop(room.Key)
 		return err
 	}
-	c.codeRoom = room
+	c.enterCodeRoom(room)
 	c.peer.Send(&serverMessage{Type: msgCreated, Code: room.Code, PeerID: c.peer.ID})
 	c.notifyEveryone()
-	c.hub.logf("relay: room %s created by %s", room.Code, c.peer.ID)
+	c.hub.logf("coordinator: room %s created by %s", room.Code, c.peer.ID)
 	return nil
 }
 
@@ -183,116 +181,73 @@ func (c *Conn) handleJoin(msg *clientMessage) error {
 	if c.codeRoom != nil {
 		return errAlreadyInRoom
 	}
-	if err := c.adoptIdentity(msg); err != nil {
-		return err
+	if c.peer.PubKey == "" {
+		return errNotInRoom
 	}
-	room, err := c.hub.Room(msg.Code)
+	room, err := c.hub.Room(msg.Code, c.ip)
 	if err != nil {
 		return err
 	}
 	if err := room.Add(c.peer); err != nil {
 		return err
 	}
-	c.codeRoom = room
+	c.enterCodeRoom(room)
 	c.peer.Send(&serverMessage{Type: msgJoined, Code: room.Code, PeerID: c.peer.ID})
 	c.notifyEveryone()
 	return nil
 }
 
-// handleRelay forwards an end-to-end encrypted frame. The relay reads the
-// destination and nothing else: Payload is ciphertext it has no key for.
-// Sending to several people at once is the client's job — it seals one
-// frame per recipient, because a shared secret is per-pair.
-func (c *Conn) handleRelay(msg *clientMessage) error {
-	if c.peer.Name == "" {
+// enterCodeRoom moves a peer out of the open network lobby. A room is a
+// narrowing boundary: lobby users cannot see or address room members, while
+// room members see only one another.
+func (c *Conn) enterCodeRoom(room *Room) {
+	c.codeRoom = room
+	previous := c.netRoom
+	c.netRoom = nil
+	if previous == nil {
+		return
+	}
+	if previous.Remove(c.peer) {
+		c.hub.Drop(previous.Key)
+		return
+	}
+	previous.Broadcast(&serverMessage{Type: msgPeerLeft, PeerID: c.peer.ID})
+	previous.NotifyRosters()
+}
+
+// handleSignal forwards one encrypted WebRTC negotiation frame. The
+// coordinator reads the destination and nothing else. App messages and file
+// bytes are deliberately not accepted on this socket.
+func (c *Conn) handleSignal(msg *clientMessage) error {
+	if c.peer.PubKey == "" {
 		return errNotInRoom
 	}
 	if msg.Payload == "" {
-		return errors.New("relay frame has empty payload")
+		return errors.New("signal frame has empty payload")
+	}
+	if len(msg.Payload) > maxSignalPayloadLen {
+		return errors.New("signal payload is too large")
 	}
 	target, ok := c.peer.Find(msg.To)
 	if !ok {
 		return errPeerNotFound
 	}
-	target.Send(&serverMessage{Type: msgRelay, From: c.peer.ID, Payload: msg.Payload})
+	target.Send(&serverMessage{Type: msgSignal, From: c.peer.ID, Payload: msg.Payload})
 	c.touchRooms()
 	return nil
 }
 
-// handleTransferBegin sets up a data-plane rendezvous. A well-behaved
-// client only sends this after the receiver has approved the offer, but
-// the relay does not — and cannot — verify that: the approval is
-// encrypted. The guarantee that nothing is written without consent is
-// enforced on the receiving browser, which will not open the download
-// until its own user has approved.
-func (c *Conn) handleTransferBegin(msg *clientMessage) error {
-	if c.peer.Name == "" {
-		return errNotInRoom
-	}
-	target, ok := c.peer.Find(msg.To)
-	if !ok {
-		return errPeerNotFound
-	}
-	x, err := c.rv.Begin(c.peer.ID, target.ID, msg.Size)
-	if err != nil {
-		return err
-	}
-	c.peer.Send(&serverMessage{
-		Type:       msgTransferReady,
-		TransferID: x.id,
-		Token:      x.sendToken,
-		Role:       roleSender,
-		Peer:       target.ID,
-		Size:       x.size,
-	})
-	target.Send(&serverMessage{
-		Type:       msgTransferReady,
-		TransferID: x.id,
-		Token:      x.recvToken,
-		Role:       roleReceiver,
-		Peer:       c.peer.ID,
-		Size:       x.size,
-	})
-	c.touchRooms()
-	return nil
-}
-
-// handleTransferEnd propagates a client-initiated cancel. Normal
-// completion is observed by the data plane; this path exists so a user
-// who changes their mind mid-transfer stops it immediately rather than
-// after the idle timeout.
-func (c *Conn) handleTransferEnd(msg *clientMessage) error {
-	if msg.TransferID == "" {
-		return errors.New("transfer_end requires transfer_id")
-	}
-	c.rv.Abort(msg.TransferID, fmt.Errorf("cancelled by peer: %s", msg.Status))
-	if target, ok := c.peer.Find(msg.To); ok {
-		target.Send(&serverMessage{
-			Type:       msgTransferEnd,
-			TransferID: msg.TransferID,
-			Status:     msg.Status,
-			From:       c.peer.ID,
-		})
-	}
-	c.touchRooms()
-	return nil
-}
-
-// adoptIdentity validates and records the display name and ephemeral
-// public key a client presents when it arrives.
-func (c *Conn) adoptIdentity(msg *clientMessage) error {
-	name := sanitizeName(msg.Name)
-	if name == "" {
-		return errors.New("a display name is required")
-	}
-	if len(msg.PubKey) != pubKeyHexLen {
+// adoptKey validates and records the ephemeral public key used by browsers to
+// encrypt their WebRTC signaling. Display names are exchanged only after the
+// direct data channel opens, so the coordinator never receives them.
+func (c *Conn) adoptKey(pubKey string) error {
+	if len(pubKey) != pubKeyHexLen {
 		return fmt.Errorf("public key must be %d hex characters", pubKeyHexLen)
 	}
-	if _, err := hex.DecodeString(msg.PubKey); err != nil {
+	if _, err := hex.DecodeString(pubKey); err != nil {
 		return errors.New("public key is not valid hex")
 	}
-	c.peer.Name = name
-	c.peer.PubKey = strings.ToLower(msg.PubKey)
+	c.peer.PubKey = pubKey
 	return nil
 }
 
@@ -317,9 +272,6 @@ func (c *Conn) touchRooms() {
 
 func (c *Conn) cleanup() {
 	c.peer.Close()
-	for _, id := range c.rv.AbortForPeer(c.peer.ID, errors.New("peer disconnected")) {
-		c.hub.logf("relay: aborted transfer %s (peer %s left)", id, c.peer.ID)
-	}
 
 	for _, room := range []*Room{c.netRoom, c.codeRoom} {
 		if room == nil {
@@ -329,30 +281,13 @@ func (c *Conn) cleanup() {
 		if empty {
 			c.hub.Drop(room.Key)
 			if room.Kind == roomKindCode {
-				c.hub.logf("relay: room %s closed (last peer left)", room.Code)
+				c.hub.logf("coordinator: room %s closed (last peer left)", room.Code)
 			}
 			continue
 		}
 		room.Broadcast(&serverMessage{Type: msgPeerLeft, PeerID: c.peer.ID})
 		room.NotifyRosters()
 	}
-}
-
-// sanitizeName strips control characters and clamps length so one client
-// cannot inject terminal escapes or layout-breaking strings into another
-// client's roster.
-func sanitizeName(raw string) string {
-	cleaned := strings.Map(func(r rune) rune {
-		if r < 0x20 || r == 0x7f {
-			return -1
-		}
-		return r
-	}, strings.TrimSpace(raw))
-	runes := []rune(cleaned)
-	if len(runes) > maxNameLen {
-		runes = runes[:maxNameLen]
-	}
-	return strings.TrimSpace(string(runes))
 }
 
 func codeForError(err error) string {
@@ -363,6 +298,10 @@ func codeForError(err error) string {
 		return errCodeRoomFull
 	case errors.Is(err, errNetworkBusy):
 		return errCodeNetworkBusy
+	case errors.Is(err, errNetworkMatch):
+		return errCodeNetworkMatch
+	case errors.Is(err, errUnsupported):
+		return errCodeUnsupported
 	case errors.Is(err, errPeerNotFound):
 		return errCodeNoPeer
 	case errors.Is(err, errRateLimited):

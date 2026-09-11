@@ -6,7 +6,6 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"strconv"
 	"strings"
 	"time"
 
@@ -15,29 +14,23 @@ import (
 	"github.com/bonjou-app/bonjou-cli/internal/logger"
 )
 
-// tokenHeader carries a transfer's bearer token. The download half also
-// accepts ?token= because a service worker fetch is easier to reason about
-// with the token in the URL it already constructs.
-const tokenHeader = "X-Bonjou-Token"
-
-// Options configures a relay server.
+// Options configures a coordinator server.
 type Options struct {
 	Limits Limits
 	Logger *logger.Logger
-	// AllowedOrigins lists browser origins permitted to reach the relay,
+	// AllowedOrigins lists browser origins permitted to reach the coordinator,
 	// e.g. "https://bonjou.vercel.app". A single "*" allows any origin.
 	AllowedOrigins []string
-	// TrustProxy makes the relay read the client address from
-	// X-Forwarded-For / X-Real-IP. Correct behind nginx; must stay false
-	// if the relay is ever exposed directly, since otherwise a client can
+	// TrustProxy makes the coordinator read the client address from
+	// X-Real-IP / X-Forwarded-For. Correct behind nginx; must stay false
+	// if the coordinator is ever exposed directly, since otherwise a client can
 	// forge the header and walk around per-IP rate limits.
 	TrustProxy bool
 }
 
-// Server wires the control plane and data plane onto one HTTP handler.
+// Server exposes health, room membership, and encrypted WebRTC signaling.
 type Server struct {
 	hub        *Hub
-	rv         *Rendezvous
 	logger     *logger.Logger
 	origins    []string
 	allowAll   bool
@@ -45,12 +38,11 @@ type Server struct {
 	started    time.Time
 }
 
-// NewServer constructs a relay server.
+// NewServer constructs a coordinator server.
 func NewServer(opts Options) *Server {
 	limits := opts.Limits.withDefaults()
 	s := &Server{
 		hub:        NewHub(limits, opts.Logger),
-		rv:         NewRendezvous(limits, opts.Logger),
 		logger:     opts.Logger,
 		trustProxy: opts.TrustProxy,
 		started:    time.Now(),
@@ -71,9 +63,7 @@ func NewServer(opts Options) *Server {
 
 // Run starts background maintenance and blocks until ctx is cancelled.
 func (s *Server) Run(ctx context.Context) {
-	go s.hub.Run(ctx)
-	go s.rv.Run(ctx)
-	<-ctx.Done()
+	s.hub.Run(ctx)
 }
 
 // Handler returns the routed HTTP handler.
@@ -81,10 +71,6 @@ func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", s.handleHealth)
 	mux.HandleFunc("GET /ws", s.handleWS)
-	mux.HandleFunc("GET /t/{id}", s.handleDownload)
-	mux.HandleFunc("POST /t/{id}/end", s.handleUploadEnd)
-	mux.HandleFunc("POST /t/{id}/{seq}", s.handleUpload)
-	mux.HandleFunc("OPTIONS /", s.handlePreflight)
 	return s.withCORS(mux)
 }
 
@@ -94,7 +80,6 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"status":     "ok",
 		"rooms":      s.hub.Rooms(),
-		"transfers":  s.rv.Active(),
 		"uptime_sec": int64(time.Since(s.started).Seconds()),
 	})
 }
@@ -108,10 +93,10 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 	}
 	ws, err := websocket.Accept(w, r, opts)
 	if err != nil {
-		s.errorf("relay: websocket accept from %s: %v", s.clientIP(r), err)
+		s.errorf("coordinator: websocket accept from %s: %v", s.clientIP(r), err)
 		return
 	}
-	conn, err := newConn(ws, s.hub, s.rv, s.clientIP(r))
+	conn, err := newConn(ws, s.hub, s.clientIP(r))
 	if err != nil {
 		_ = ws.Close(websocket.StatusInternalError, "could not allocate peer id")
 		return
@@ -124,29 +109,8 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 	conn.run(context.Background())
 }
 
-func (s *Server) handleDownload(w http.ResponseWriter, r *http.Request) {
-	s.rv.ServeDownload(w, r, r.PathValue("id"), transferToken(r))
-}
-
-func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
-	seq, err := strconv.ParseUint(r.PathValue("seq"), 10, 64)
-	if err != nil {
-		writeHTTPError(w, http.StatusBadRequest, err)
-		return
-	}
-	s.rv.ServeUpload(w, r, r.PathValue("id"), transferToken(r), seq)
-}
-
-func (s *Server) handleUploadEnd(w http.ResponseWriter, r *http.Request) {
-	s.rv.ServeEnd(w, r, r.PathValue("id"), transferToken(r))
-}
-
-func (s *Server) handlePreflight(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusNoContent)
-}
-
-// withCORS echoes an allowed origin back. The relay carries only
-// ciphertext and per-transfer bearer tokens, but origin checking still
+// withCORS echoes an allowed origin back. The coordinator carries only
+// candidate state and encrypted signaling, but origin checking still
 // keeps a hostile page from quietly enumerating rooms in a visitor's
 // browser.
 func (s *Server) withCORS(next http.Handler) http.Handler {
@@ -155,9 +119,7 @@ func (s *Server) withCORS(next http.Handler) http.Handler {
 		if origin != "" && s.originAllowed(origin) {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 			w.Header().Set("Vary", "Origin")
-			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", tokenHeader+", Content-Type")
-			w.Header().Set("Access-Control-Expose-Headers", "Content-Length")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
 			w.Header().Set("Access-Control-Max-Age", "86400")
 		}
 		if r.Method == http.MethodOptions {
@@ -198,14 +160,22 @@ func (s *Server) originPatterns() []string {
 // clientIP resolves the address used for rate limiting.
 func (s *Server) clientIP(r *http.Request) string {
 	if s.trustProxy {
-		if forwarded := r.Header.Get("X-Forwarded-For"); forwarded != "" {
-			if first, _, ok := strings.Cut(forwarded, ","); ok {
-				return strings.TrimSpace(first)
-			}
-			return strings.TrimSpace(forwarded)
+		// The packaged nginx configuration overwrites X-Real-IP with the
+		// address of its client, so prefer it over the client-controlled
+		// beginning of an X-Forwarded-For chain.
+		if real := strings.TrimSpace(r.Header.Get("X-Real-IP")); real != "" {
+			return real
 		}
-		if real := r.Header.Get("X-Real-IP"); real != "" {
-			return strings.TrimSpace(real)
+		if forwarded := r.Header.Get("X-Forwarded-For"); forwarded != "" {
+			// proxy_add_x_forwarded_for appends the address seen by the trusted
+			// proxy. The rightmost value is therefore the only safe fallback
+			// when a caller supplied a forged prefix.
+			parts := strings.Split(forwarded, ",")
+			for i := len(parts) - 1; i >= 0; i-- {
+				if candidate := strings.TrimSpace(parts[i]); candidate != "" {
+					return candidate
+				}
+			}
 		}
 	}
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
@@ -213,13 +183,6 @@ func (s *Server) clientIP(r *http.Request) string {
 		return r.RemoteAddr
 	}
 	return host
-}
-
-func transferToken(r *http.Request) string {
-	if token := r.Header.Get(tokenHeader); token != "" {
-		return token
-	}
-	return r.URL.Query().Get("token")
 }
 
 func (s *Server) errorf(format string, args ...any) {
