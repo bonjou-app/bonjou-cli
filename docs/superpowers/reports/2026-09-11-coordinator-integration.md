@@ -1,5 +1,10 @@
 # Bonjou Web coordinator integration
 
+Historical record of the initial integration. The revision and test count
+below describe that snapshot; the current compatibility pin is in
+`.github/workflows/ci.yml`. Final UI and coordinator verification is recorded
+in [the October report](https://github.com/bonjou-app/bonjou-web/blob/codex/bonjou-web-revamp/docs/superpowers/reports/2026-10-05-bonjou-comprehensive-e2e.md).
+
 This change pairs with `bonjou-app/bonjou-web` commit
 `59e2f8a7fd3ad17697075889693c89bcf08b1521` on `codex/bonjou-web-revamp`.
 The browser compatibility workflow is pinned to that exact web revision.
