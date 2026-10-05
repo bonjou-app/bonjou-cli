@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Build the Bonjou web relay for the server's architecture and install it.
+# Build the Bonjou Web coordinator for the server's architecture and install it.
 #
-# The relay is a single static binary. Nothing is compiled on the server:
+# The coordinator is a single static binary. Nothing is compiled on the server:
 # it has no Go toolchain and does not need one.
 #
 # Idempotent — safe to re-run to deploy a new build.
@@ -16,7 +16,7 @@ GOARCH_TARGET="${BONJOU_RELAY_GOARCH:-arm64}"
 
 BINARY="$ROOT_DIR/dist/bin/bonjou-relay-linux-$GOARCH_TARGET"
 
-echo "==> Building relay for linux/$GOARCH_TARGET"
+echo "==> Building coordinator for linux/$GOARCH_TARGET"
 mkdir -p "$ROOT_DIR/dist/bin"
 (cd "$ROOT_DIR" && CGO_ENABLED=0 GOOS=linux GOARCH="$GOARCH_TARGET" \
     go build -trimpath -ldflags="-s -w" -o "$BINARY" ./cmd/bonjou-relay)
@@ -33,7 +33,7 @@ ssh "$SSH_HOST" \
     'bash -s' <<'REMOTE'
 set -euo pipefail
 
-# Dedicated unprivileged account; the relay never needs a home or a shell.
+# Dedicated unprivileged account; the coordinator never needs a home or a shell.
 if ! id bonjou-relay >/dev/null 2>&1; then
     sudo useradd --system --no-create-home --shell /usr/sbin/nologin bonjou-relay
 fi
@@ -101,4 +101,4 @@ REMOTE
 
 echo "==> Verifying"
 curl -fsS "https://${RELAY_HOST}/healthz" && echo
-echo "Relay live at https://${RELAY_HOST}"
+echo "Coordinator live at https://${RELAY_HOST}"

@@ -76,15 +76,9 @@ func formatCode(bare string) string {
 	return b.String()
 }
 
-// newID returns a 16-hex-character identifier for a peer or transfer.
+// newID returns a 16-hex-character identifier for a peer.
 func newID() (string, error) {
 	return randomHex(8)
-}
-
-// newToken returns a 32-hex-character bearer token authorising one half of
-// one transfer. Tokens are single-purpose and die with the transfer.
-func newToken() (string, error) {
-	return randomHex(16)
 }
 
 func randomHex(n int) (string, error) {

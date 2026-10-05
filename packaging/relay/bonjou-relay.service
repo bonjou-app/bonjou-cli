@@ -1,5 +1,5 @@
 [Unit]
-Description=Bonjou web relay
+Description=Bonjou Web coordinator
 Documentation=https://github.com/bonjou-app/bonjou-cli
 After=network-online.target
 Wants=network-online.target
@@ -17,7 +17,7 @@ EnvironmentFile=/etc/default/bonjou-relay
 Restart=always
 RestartSec=2
 
-# The relay holds no key material and writes nothing but its own log
+# The coordinator holds no key material or payload data and writes only its log
 # directory, so it can run with almost everything taken away.
 NoNewPrivileges=true
 PrivateTmp=true
@@ -35,11 +35,9 @@ LockPersonality=true
 MemoryDenyWriteExecute=true
 ReadWritePaths=/var/log/bonjou-relay
 
-# This box also runs ollama and open-webui. A hard memory ceiling means a
-# runaway relay gets killed on its own rather than triggering the OOM
-# killer against its neighbours.
-MemoryMax=2G
-TasksMax=4096
+# The coordinator stores only bounded candidate and room state.
+MemoryMax=512M
+TasksMax=1024
 LimitNOFILE=65535
 
 [Install]

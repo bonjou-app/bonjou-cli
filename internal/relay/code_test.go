@@ -82,19 +82,12 @@ func TestNewRoomCodeIsNotRepetitive(t *testing.T) {
 	}
 }
 
-func TestNewIDAndTokenLengths(t *testing.T) {
+func TestNewIDLength(t *testing.T) {
 	id, err := newID()
 	if err != nil {
 		t.Fatalf("newID: %v", err)
 	}
 	if len(id) != 16 {
 		t.Errorf("newID length = %d, want 16", len(id))
-	}
-	token, err := newToken()
-	if err != nil {
-		t.Fatalf("newToken: %v", err)
-	}
-	if len(token) != 32 {
-		t.Errorf("newToken length = %d, want 32", len(token))
 	}
 }

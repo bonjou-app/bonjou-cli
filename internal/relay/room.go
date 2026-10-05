@@ -6,6 +6,8 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"net"
+	"strings"
 	"sync"
 	"time"
 
@@ -15,23 +17,26 @@ import (
 var (
 	errRoomNotFound  = errors.New("no room with that code — it may have expired")
 	errRoomFull      = errors.New("room is full")
-	errAtCapacity    = errors.New("relay is at capacity, try again shortly")
+	errAtCapacity    = errors.New("coordinator is at capacity, try again shortly")
 	errPeerNotFound  = errors.New("that peer is no longer reachable")
 	errRateLimited   = errors.New("too many rooms created from this address")
 	errAlreadyInRoom = errors.New("this connection is already in a room")
 	errNotInRoom     = errors.New("say hello first")
 	errNetworkBusy   = errors.New("too many devices share this network address to group them safely")
+	errNetworkMatch  = errors.New("that room belongs to a different network")
+	errUnsupported   = errors.New("message type is no longer supported")
 )
 
 // peerSendBuffer is how many control frames may queue for one client
-// before the relay gives up on it. Control frames are small and rare —
-// roster updates and E2E envelopes — so a client that falls this far
+// before the coordinator gives up on it. Control frames are small and rare,
+// consisting only of roster updates and encrypted WebRTC signaling, so a
+// client that falls this far
 // behind is not reading its socket, and disconnecting it is kinder than
 // growing a queue forever.
 const peerSendBuffer = 64
 
 // Room kinds. A network room is joined automatically by everyone sharing
-// a public address; a code room is entered deliberately via a short code.
+// a source network; a code room is entered deliberately via a short code.
 const (
 	roomKindNetwork = "network"
 	roomKindCode    = "code"
@@ -41,7 +46,6 @@ const (
 // optionally, to a code room; what it can see is the union of both.
 type Peer struct {
 	ID     string
-	Name   string
 	PubKey string
 
 	send     chan *serverMessage
@@ -52,10 +56,9 @@ type Peer struct {
 	rooms map[string]*Room
 }
 
-func newPeer(id, name, pubKey string) *Peer {
+func newPeer(id, pubKey string) *Peer {
 	return &Peer{
 		ID:     id,
-		Name:   name,
 		PubKey: pubKey,
 		send:   make(chan *serverMessage, peerSendBuffer),
 		closed: make(chan struct{}),
@@ -85,7 +88,7 @@ func (p *Peer) Close() {
 }
 
 func (p *Peer) info(source string) peerInfo {
-	return peerInfo{ID: p.ID, Name: p.Name, PubKey: p.PubKey, Source: source}
+	return peerInfo{ID: p.ID, PubKey: p.PubKey, Source: source}
 }
 
 func (p *Peer) joinedRoom(r *Room) {
@@ -161,11 +164,15 @@ func (p *Peer) Find(id string) (*Peer, bool) {
 // Room is a set of peers who can see each other.
 type Room struct {
 	// Key is the internal identifier. For code rooms it is the code; for
-	// network rooms it is an opaque digest of the public address, so a
+	// network rooms it is an opaque digest of the source network, so a
 	// raw IP is never stored or exposed.
 	Key  string
 	Code string
 	Kind string
+	// NetworkKey binds both automatic and explicit rooms to one source
+	// network. A room link can narrow who a user sees, but never bridge two
+	// different networks.
+	NetworkKey string
 
 	mu         sync.RWMutex
 	peers      map[string]*Peer
@@ -184,7 +191,8 @@ func newRoom(key, code, kind string, maxPeers int) *Room {
 	}
 }
 
-// Add places a peer in the room.
+// Add places a peer in the room. Membership changes in hub-owned rooms must
+// go through the hub so lookup, joining, and retirement stay atomic.
 func (r *Room) Add(p *Peer) error {
 	r.mu.Lock()
 	if len(r.peers) >= r.maxPeers {
@@ -237,15 +245,6 @@ func (r *Room) Broadcast(msg *serverMessage) {
 	}
 }
 
-// NotifyRosters pushes each member its own view. Rosters are per-peer
-// rather than per-room because two peers in the same room can see
-// different people: one may also be in a code room the other is not.
-func (r *Room) NotifyRosters() {
-	for _, p := range r.members() {
-		p.Send(rosterFor(p))
-	}
-}
-
 func rosterFor(p *Peer) *serverMessage {
 	msg := &serverMessage{Type: msgRoster, Peers: p.Reachable()}
 	if code := p.CodeRoom(); code != nil {
@@ -261,19 +260,13 @@ func (r *Room) Touch() {
 	r.mu.Unlock()
 }
 
-func (r *Room) idleSince() time.Time {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	return r.lastActive
-}
-
 func (r *Room) size() int {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	return len(r.peers)
 }
 
-// Hub owns every room. State lives entirely in memory: a single relay
+// Hub owns every room. State lives entirely in memory: a single coordinator
 // instance has nothing worth persisting, and a restart losing all rooms is
 // an acceptable, recoverable event that clients already handle.
 type Hub struct {
@@ -283,7 +276,7 @@ type Hub struct {
 	logger *logger.Logger
 	rl     *rateLimiter
 
-	// networkSalt keeps address digests unlinkable across relay restarts
+	// networkSalt keeps address digests unlinkable across coordinator restarts
 	// and useless to anyone who obtains one.
 	networkSalt []byte
 }
@@ -306,15 +299,30 @@ func NewHub(limits Limits, lg *logger.Logger) *Hub {
 	}
 }
 
-// networkKey digests a client address. The raw address never becomes a
+// networkGroup canonicalises the source used for candidate grouping. IPv4
+// addresses are grouped exactly. IPv6 privacy addresses on the same LAN
+// commonly differ below the routing prefix, so IPv6 is grouped by /64.
+func networkGroup(ip string) string {
+	trimmed := strings.TrimSpace(ip)
+	parsed := net.ParseIP(trimmed)
+	if parsed == nil {
+		return trimmed
+	}
+	if v4 := parsed.To4(); v4 != nil {
+		return v4.String()
+	}
+	return parsed.Mask(net.CIDRMask(64, 128)).String() + "/64"
+}
+
+// networkKey digests a canonical client network. The raw address never becomes a
 // map key, so the room table cannot be read back as a list of who is
 // online from where.
 func (h *Hub) networkKey(ip string) string {
-	sum := sha256.Sum256(append(h.networkSalt, []byte(ip)...))
+	sum := sha256.Sum256(append(h.networkSalt, []byte(networkGroup(ip))...))
 	return "net:" + hex.EncodeToString(sum[:8])
 }
 
-// NetworkRoom returns the room shared by everyone reaching the relay from
+// NetworkRoom returns the candidate group shared by everyone reaching the coordinator from
 // the same public address — the browser's substitute for the CLI's UDP
 // broadcast, which no browser can send.
 //
@@ -322,13 +330,32 @@ func (h *Hub) networkKey(ip string) string {
 // network share a public address, which is the case this serves. But so
 // do devices behind carrier-grade NAT, where "same address" means
 // "same ISP region" rather than "same room". MaxNetworkPeers bounds that:
-// past the cap the relay stops grouping rather than introducing strangers
+// past the cap the coordinator stops grouping rather than introducing strangers
 // to each other.
 func (h *Hub) NetworkRoom(ip string) (*Room, error) {
-	key := h.networkKey(ip)
-
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	return h.networkRoomLocked(ip)
+}
+
+// joinNetwork looks up or creates a network room and joins it before another
+// connection can retire it. A room pointer alone is not a membership lease.
+func (h *Hub) joinNetwork(ip string, p *Peer) (*Room, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	room, err := h.networkRoomLocked(ip)
+	if err != nil {
+		return nil, err
+	}
+	if err := room.Add(p); err != nil {
+		return nil, err
+	}
+	return room, nil
+}
+
+// networkRoomLocked requires h.mu to be held for writing.
+func (h *Hub) networkRoomLocked(ip string) (*Room, error) {
+	key := h.networkKey(ip)
 	if room, ok := h.rooms[key]; ok {
 		return room, nil
 	}
@@ -336,6 +363,7 @@ func (h *Hub) NetworkRoom(ip string) (*Room, error) {
 		return nil, errAtCapacity
 	}
 	room := newRoom(key, "", roomKindNetwork, h.limits.MaxNetworkPeers)
+	room.NetworkKey = key
 	h.rooms[key] = room
 	return room, nil
 }
@@ -344,11 +372,33 @@ func (h *Hub) NetworkRoom(ip string) (*Room, error) {
 // astronomically unlikely event of a collision rather than trusting
 // randomness blindly.
 func (h *Hub) CreateRoom(ip string) (*Room, error) {
-	if !h.rl.allow(ip, time.Now()) {
-		return nil, errRateLimited
-	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	return h.createRoomLocked(ip)
+}
+
+// createRoomForPeer publishes a room together with its first member, so the
+// idle sweeper cannot retire it between creation and joining.
+func (h *Hub) createRoomForPeer(ip string, p *Peer) (*Room, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	room, err := h.createRoomLocked(ip)
+	if err != nil {
+		return nil, err
+	}
+	if err := room.Add(p); err != nil {
+		h.dropRoomLocked(room)
+		return nil, err
+	}
+	return room, nil
+}
+
+// createRoomLocked requires h.mu to be held for writing.
+func (h *Hub) createRoomLocked(ip string) (*Room, error) {
+	networkKey := h.networkKey(ip)
+	if !h.rl.allow(networkGroup(ip), time.Now()) {
+		return nil, errRateLimited
+	}
 	if len(h.rooms) >= h.limits.MaxRooms {
 		return nil, errAtCapacity
 	}
@@ -361,32 +411,130 @@ func (h *Hub) CreateRoom(ip string) (*Room, error) {
 			continue
 		}
 		room := newRoom(code, code, roomKindCode, h.limits.MaxPeersPerRoom)
+		room.NetworkKey = networkKey
 		h.rooms[code] = room
 		return room, nil
 	}
 	return nil, errAtCapacity
 }
 
-// Room resolves a code, tolerating user formatting.
-func (h *Hub) Room(code string) (*Room, error) {
-	normalized := normalizeCode(code)
-	if normalized == "" {
-		return nil, errRoomNotFound
-	}
+// Room resolves a code for a caller on the room's source network, tolerating
+// user formatting. Possessing a room link never grants cross-network access.
+func (h *Hub) Room(code, ip string) (*Room, error) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
-	room, ok := h.rooms[normalized]
-	if !ok || room.Kind != roomKindCode {
-		return nil, errRoomNotFound
+	return h.roomLocked(code, ip)
+}
+
+// joinRoom keeps code lookup, network authorization, and membership in the
+// same critical section as last-peer removal and idle retirement.
+func (h *Hub) joinRoom(code, ip string, p *Peer) (*Room, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	room, err := h.roomLocked(code, ip)
+	if err != nil {
+		return nil, err
+	}
+	if err := room.Add(p); err != nil {
+		return nil, err
 	}
 	return room, nil
 }
 
-// Drop removes a room, used when its last peer leaves.
-func (h *Hub) Drop(key string) {
+// roomLocked requires h.mu to be held for reading or writing.
+func (h *Hub) roomLocked(code, ip string) (*Room, error) {
+	normalized := normalizeCode(code)
+	if normalized == "" {
+		return nil, errRoomNotFound
+	}
+	room, ok := h.rooms[normalized]
+	if !ok || room.Kind != roomKindCode {
+		return nil, errRoomNotFound
+	}
+	if room.NetworkKey != h.networkKey(ip) {
+		return nil, errNetworkMatch
+	}
+	return room, nil
+}
+
+// Drop retires an exact room only while it is empty. An old room pointer must
+// never remove a replacement that happens to have the same network key.
+func (h *Hub) Drop(room *Room) bool {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	delete(h.rooms, key)
+	return h.dropRoomLocked(room)
+}
+
+// removePeer atomically removes membership and retires an empty room. Joining
+// connections cannot obtain a room between its final removal and retirement.
+func (h *Hub) removePeer(room *Room, p *Peer) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.removePeerLocked(room, p)
+}
+
+// removePeerLocked requires h.mu to be held for writing.
+func (h *Hub) removePeerLocked(room *Room, p *Peer) bool {
+	empty := room.Remove(p)
+	if empty {
+		h.dropRoomLocked(room)
+	}
+	return empty
+}
+
+// dropRoomLocked requires h.mu to be held for writing. All hub lifecycle
+// operations acquire the hub lock before a room lock.
+func (h *Hub) dropRoomLocked(room *Room) bool {
+	room.mu.Lock()
+	defer room.mu.Unlock()
+	if h.rooms[room.Key] != room || len(room.peers) != 0 {
+		return false
+	}
+	delete(h.rooms, room.Key)
+	return true
+}
+
+// notifyRosters snapshots and enqueues each current member's view while
+// membership cannot change. Otherwise an older snapshot can be queued after
+// a newer one and make a client discard a peer that is still present.
+func (h *Hub) notifyRosters(room *Room) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	if h.rooms[room.Key] != room {
+		return
+	}
+	for _, p := range room.members() {
+		p.Send(rosterFor(p))
+	}
+}
+
+// departPeer removes membership and enqueues departure and roster updates in
+// one critical section. A recipient cannot change scope between its selection
+// and delivery, and a peer still reachable in another room is preserved.
+func (h *Hub) departPeer(room *Room, departed *Peer) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	empty := h.removePeerLocked(room, departed)
+	if empty {
+		return true
+	}
+	if h.rooms[room.Key] != room {
+		return false
+	}
+	for _, p := range room.members() {
+		if _, reachable := p.Find(departed.ID); !reachable {
+			p.Send(&serverMessage{Type: msgPeerLeft, PeerID: departed.ID})
+		}
+		p.Send(rosterFor(p))
+	}
+	return false
+}
+
+// sendRoster applies the same ordering to a repeat-hello scope refresh.
+func (h *Hub) sendRoster(p *Peer) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	p.Send(rosterFor(p))
 }
 
 // Rooms reports the current room count, for the health endpoint.
@@ -415,16 +563,19 @@ func (h *Hub) sweep(now time.Time) {
 	h.mu.Lock()
 	stale := make([]*Room, 0)
 	for key, room := range h.rooms {
-		if room.size() > 0 || now.Sub(room.idleSince()) < h.limits.RoomIdleTTL {
+		room.mu.Lock()
+		if len(room.peers) > 0 || now.Sub(room.lastActive) < h.limits.RoomIdleTTL {
+			room.mu.Unlock()
 			continue
 		}
 		stale = append(stale, room)
 		delete(h.rooms, key)
+		room.mu.Unlock()
 	}
 	h.mu.Unlock()
 
 	for _, room := range stale {
-		h.logf("relay: expired idle room %s", room.Key)
+		h.logf("coordinator: expired idle room %s", room.Key)
 	}
 }
 

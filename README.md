@@ -217,13 +217,15 @@ What v2 does **not** yet provide (tracked in
 
 Bonjou requires **Go 1.26.0** or newer.
 
-This repository contains the CLI and the Go relay. The marketing website and
+This repository contains the CLI and the signaling coordinator. The marketing website and
 browser application live in [bonjou-web](https://github.com/bonjou-app/bonjou-web),
 under the [Bonjou organization](https://github.com/bonjou-app).
 Both repositories build independently. See the
 [repository architecture](docs/repository-architecture.md) for protocol ownership.
 
-Run the web relay locally with `go run ./cmd/bonjou-relay`. Deployment templates
+Run the signaling coordinator locally with `go run ./cmd/bonjou-relay` (the binary
+retains its historical name). It forwards encrypted connection signaling;
+browser chats and files travel directly over WebRTC. Deployment templates
 remain in `packaging/relay/` and `scripts/deploy-relay.sh`.
 
 To build and run the project locally:

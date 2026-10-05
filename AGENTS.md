@@ -5,6 +5,14 @@ this file; keep shared instructions here instead of duplicating them across
 agent-specific files. Where the legacy `.rules` file conflicts with this file,
 follow this file. Read toolchain versions and scripts from the current manifests.
 
+## Communication Guidelines
+
+- Be direct and honest; do not agree just to be agreeable.
+- Challenge the user's assumptions when they are weak.
+- If the user is wrong, say so clearly and explain why.
+- Rate ideas honestly out of 10.
+- If you are uncertain, say so instead of guessing confidently.
+
 ## Default Working Practices
 
 - Treat relevant skills, sound engineering practices, security, and verification as defaults. The user should not need to repeat "use the best skills and guidelines" in each task.
@@ -22,7 +30,7 @@ follow this file. Read toolchain versions and scripts from the current manifests
 - Bonjou is an open-source project. Keep product source, protocol documentation, synthetic test vectors, and reusable self-hosting templates suitable for public distribution. A private repository is not a substitute for secret management.
 - This repository contains the Go CLI, Go relay, and canonical protocol vectors. The marketing website and browser app live in the sibling `bonjou-app/bonjou-web` repository. Each product builds independently; no parent repository or submodule is required.
 - The approved organization architecture and migration state are documented in [docs/repository-architecture.md](docs/repository-architecture.md). Update repository links and documentation together when ownership changes; preserve history, license notices, releases, and working installation channels.
-- The Go relay has its own deployment but stays in this Go module. It must forward opaque content without client encryption keys, decryption, or payload storage.
+- The Go coordinator has its own deployment but stays in this module under the historical bonjou-relay binary name. It groups source-network candidates and forwards opaque encrypted WebRTC signaling only.
 - Go owns `internal/network/testdata/protocol-v2.json`. The web repo keeps a copy pinned to a reviewed CLI commit with a checksum. The browser compatibility job checks a pinned web revision against this repository's candidate vectors and relay. Coordinate changes through linked PRs and explicit revision updates.
 - The approved logo is maintained in `bonjou-web/src/share/brandMark.json`. Keep `docs/assets/bonjou-mark.svg` and `docs/assets/logo.png` synchronized with its generated transparent SVG and PNG exports; follow the web design document for brand changes.
 - An organization profile is the project overview. Agent instructions belong in each product repository so independent clones have the guidance they need.
@@ -30,9 +38,9 @@ follow this file. Read toolchain versions and scripts from the current manifests
 ## Build, Test, and Development Commands
 
 - `go run ./cmd/bonjou` — run the CLI locally
-- `go run ./cmd/bonjou-relay` — run the web relay locally (listens on `127.0.0.1:46330`)
+- `go run ./cmd/bonjou-relay` — run the web coordinator locally (listens on `127.0.0.1:46330`)
 - `go test ./...` — full test suite; `go test ./internal/network -run TestName` for a single test
-- `./scripts/deploy-relay.sh` — cross-compile the relay and install it on the server
+- `./scripts/deploy-relay.sh` — cross-compile the coordinator and install it on the server
 - Browser checks run in `bonjou-web`: `npm run check:protocol`, `npm test`, and `npm run build`. Run both implementations for protocol changes.
 - `gofmt -w <file>` — required before committing, no exceptions
 - `golangci-lint run ./...` — lint the module (config in `.golangci.yml`)
@@ -41,7 +49,7 @@ follow this file. Read toolchain versions and scripts from the current manifests
 
 ## Code Style & Naming Conventions
 
-- **Receiver names** are fixed per type — match existing methods (`t` `*TransferService`, `d` `*DiscoveryService`, `s` `*Session`, `h` `*Handler`, `m` `*Manager`, `l` `*Logger`, `c` `*Config`). In `internal/relay`: `r` `*Room`, `h` `*Hub`, `p` `*Peer`, `c` `*Conn`, `v` `*Rendezvous`, `x` `*transfer`, `s` `*Server`.
+- **Receiver names** are fixed per type — match existing methods (`t` `*TransferService`, `d` `*DiscoveryService`, `s` `*Session`, `h` `*Handler`, `m` `*Manager`, `l` `*Logger`, `c` `*Config`). In `internal/relay`: `r` `*Room`, `h` `*Hub`, `p` `*Peer`, `c` `*Conn`, `s` `*Server`.
 - **Sentinel errors**: unexported `errCamelCase`, exported `ErrPascalCase`. Handler command methods: `cmd` + PascalCase (`cmdSend`, `cmdFile`).
 - **Error wrapping**: Use `fmt.Errorf("lowercase context: %w", err)` — no trailing punctuation.
 - **File permissions**: Use `0o`-prefixed octal (`0o755`, `0o644`, `0o600`).
@@ -51,8 +59,8 @@ follow this file. Read toolchain versions and scripts from the current manifests
 
 ## Architecture Rules
 
-- All Go code lives under `cmd/` and `internal/`. There are exactly two binaries — `cmd/bonjou` (the CLI) and `cmd/bonjou-relay` (the web relay). Do not introduce new application roots without a concrete architectural need; `.github/` holds CI and contributor configuration.
-- **The relay is a dumb pipe.** `internal/relay` must never import `internal/network`, hold key material, or decrypt anything. It routes on a destination peer id and forwards opaque payloads. If a change would give the relay the ability to read user content, the change is wrong.
+- All Go code lives under `cmd/` and `internal/`. There are exactly two binaries — `cmd/bonjou` (the CLI) and `cmd/bonjou-relay` (the web coordinator). Do not introduce new application roots without a concrete architectural need; `.github/` holds CI and contributor configuration.
+- **The coordinator is signaling-only.** `internal/relay` must never import `internal/network`, hold key material, decrypt anything, or accept profile, chat, file-metadata, or file-payload frames. It scopes candidates and rooms to their source network and forwards opaque encrypted WebRTC signaling only.
 - **Two implementations of protocol v2.** Go lives in `internal/network`; the browser implementation is `src/share/crypto.ts` in `bonjou-web`. Regenerate canonical vectors with `BONJOU_WRITE_VECTORS=1 go test ./internal/network -run TestProtocolV2Vectors`, coordinate both implementations, and update the browser fixture provenance and CI revision pins. Do not hand-edit generated vectors or skip a missing fixture.
 - `internal/` packages never write to `os.Stdout` — user-facing output goes through `ui.UI` or `Result.Output`.
 - **New `@commands`**: register it in the `Handle()` switch in `internal/commands/handler.go` and `helpText()` in `internal/commands/help.go`.
@@ -65,7 +73,7 @@ follow this file. Read toolchain versions and scripts from the current manifests
 - **Sign/Verify**: Do not bypass `signEnvelope` / `verifyEnvelope`.
 - **Sanitize paths**: Sanitize peer-supplied paths with `uniquePath` / `UniquePath` before writing under `~/.bonjou/received/`.
 - **Secrets**: `config.json` is written `0o600`; never log the `Config.Secret` field. Load/persist secrets through `internal/config/secretstore.go`.
-- **Relay nginx config**: `proxy_request_buffering off` is mandatory. Without it nginx spools every upload to disk before forwarding, which silently turns a relay that stores nothing into one that writes every file to `/var/lib/nginx`.
+- **No web payload endpoint:** the coordinator and its reverse proxy must not expose `/t/*` or any upload/download route. Browser application data is direct WebRTC only.
 
 ## Open-Source Publication and Secrets
 
