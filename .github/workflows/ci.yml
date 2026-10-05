@@ -5,11 +5,118 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+    inputs:
+      coordinator-url:
+        description: Optional owned HTTPS coordinator for live ingress verification
+        required: false
+        type: string
+      cross-network-room-code:
+        description: Optional synthetic room held open from another network
+        required: false
+        type: string
 
 permissions:
   contents: read
 
 jobs:
+  cloudflare-adapter:
+    name: Cloudflare coordinator
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: packaging/relay/cloudflare/package-lock.json
+      - run: npm ci
+        working-directory: packaging/relay/cloudflare
+      - run: npm test
+        working-directory: packaging/relay/cloudflare
+      - name: Validate the deployment bundle without credentials
+        run: npm exec -- wrangler deploy --dry-run --outdir "$RUNNER_TEMP/bonjou-cloudflare"
+        working-directory: packaging/relay/cloudflare
+
+  cloudflare-browsers:
+    name: Cloudflare browser sharing
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: cli
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: bonjou-app/bonjou-web
+          ref: 3ae9e1b8892b8aad2d908e811139f844c7a3e737
+          path: web
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: |
+            cli/packaging/relay/cloudflare/package-lock.json
+            web/package-lock.json
+      - run: npm ci --prefix cli/packaging/relay/cloudflare
+      - run: npm ci --prefix web
+      - run: npx playwright install --with-deps chrome
+        working-directory: web
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/playwright
+      - run: npm run build
+        working-directory: web
+        env:
+          VITE_COORDINATOR_URL: http://127.0.0.1:46330
+      - name: Verify native browser discovery, rooms, transfers, and reconnects
+        shell: bash
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/playwright
+          E2E_REPORT_DIR: ${{ runner.temp }}/bonjou-cloudflare-browser
+        run: |
+          set -euo pipefail
+          (cd cli/packaging/relay/cloudflare && npm exec -- wrangler dev --local --ip 127.0.0.1 --port 46330 --var ALLOWED_ORIGINS:http://127.0.0.1:4173) >"$RUNNER_TEMP/cloudflare.log" 2>&1 &
+          coordinator_pid=$!
+          npm run preview --prefix web -- --port 4173 --strictPort >"$RUNNER_TEMP/preview.log" 2>&1 &
+          preview_pid=$!
+          trap 'kill "$coordinator_pid" "$preview_pid" 2>/dev/null || true' EXIT
+          ready=false
+          for attempt in {1..30}; do
+            if curl -fsS http://127.0.0.1:46330/healthz >/dev/null && curl -fsS http://127.0.0.1:4173/ >/dev/null; then
+              ready=true
+              break
+            fi
+            sleep 1
+          done
+          if [ "$ready" != true ]; then
+            cat "$RUNNER_TEMP/cloudflare.log" "$RUNNER_TEMP/preview.log"
+            exit 1
+          fi
+          (cd web && npm run e2e:all -- --only=lan-chromium,resilience-chromium,smoke-coordinator)
+      - name: Verify live source-network isolation when requested
+        if: inputs.coordinator-url != ''
+        working-directory: web
+        run: npm run check:ingress
+        env:
+          COORDINATOR: ${{ inputs.coordinator-url }}
+          APP_ORIGIN: https://bonjou.vercel.app
+          CROSS_NETWORK_ROOM_CODE: ${{ inputs.cross-network-room-code }}
+      - name: Preserve adapter browser evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cloudflare-browser-verification
+          path: |
+            ${{ runner.temp }}/bonjou-cloudflare-browser
+            ${{ runner.temp }}/cloudflare.log
+            ${{ runner.temp }}/preview.log
+          retention-days: 14
+          if-no-files-found: ignore
+
   go:
     name: Go (${{ matrix.os }})
     strategy:
@@ -38,7 +145,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: bonjou-app/bonjou-web
-          ref: 8cbf6b25a046f6e1078c1c3970c7879b8353ce01
+          ref: 3ae9e1b8892b8aad2d908e811139f844c7a3e737
           path: web
           persist-credentials: false
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0

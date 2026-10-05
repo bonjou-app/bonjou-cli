@@ -12,7 +12,7 @@ limited to that web repository for automatic deployments.
 
 | Repository | Visibility | Responsibility |
 | --- | --- | --- |
-| `bonjou-cli` | Public | Go CLI, Go relay, canonical protocol vectors, CLI releases, relay deployment templates |
+| `bonjou-cli` | Public | Go CLI, Go coordinator, Cloudflare signaling adapter, canonical protocol vectors, CLI releases, deployment templates |
 | `bonjou-web` | Public | Marketing website, browser workspace, browser crypto, pinned vector copy, web deployment |
 
 Use the organization's profile for the project overview. No parent product
@@ -24,6 +24,14 @@ The marketing website and browser workspace are one web application. The Go
 relay stays with the CLI's Go module even though it deploys independently. It
 must never hold client encryption keys, decrypt content, or store payloads.
 Separate releases justify this split; repository privacy is not its purpose.
+
+The JavaScript adapter in `packaging/relay/cloudflare/` implements the same
+coordinator control messages on Workers Free with one hibernating Durable
+Object. It does not change or duplicate application encryption. Public session
+keys and network-scoped membership remain routing metadata; chats, profiles,
+file metadata, and file payloads stay on direct WebRTC. See the
+[approved recovery design](cloudflare-coordinator-design.md) and
+[hosting instructions](coordinator-hosting.md).
 
 The existing `hamzaabdulwahab/homebrew-bonjou` and
 `hamzaabdulwahab/scoop-bonjou` repositories remain distribution channels.

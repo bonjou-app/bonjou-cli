@@ -226,8 +226,8 @@ Both repositories build independently. See the
 Run the signaling coordinator locally with `go run ./cmd/bonjou-relay` (the binary
 retains its historical name). It forwards encrypted connection signaling;
 browser chats and files travel directly over WebRTC. See
-[coordinator hosting](docs/coordinator-hosting.md) for the Docker image, Render
-settings, trusted source-IP configuration, and production verification. Deployment templates
+[coordinator hosting](docs/coordinator-hosting.md) for Cloudflare Workers Free,
+the Docker image, trusted source-IP configuration, and production verification. Deployment templates
 remain in `packaging/relay/` and `scripts/deploy-relay.sh`.
 
 To build and run the project locally:
