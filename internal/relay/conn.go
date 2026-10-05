@@ -134,7 +134,7 @@ func (c *Conn) handleHello(msg *clientMessage) error {
 		return errors.New("public key cannot change during a session")
 	}
 	if c.netRoom != nil || c.codeRoom != nil {
-		c.peer.Send(rosterFor(c.peer))
+		c.hub.sendRoster(c.peer)
 		return nil
 	}
 
@@ -146,7 +146,7 @@ func (c *Conn) handleHello(msg *clientMessage) error {
 	}
 	c.netRoom = room
 	c.peer.Send(&serverMessage{Type: msgJoined, PeerID: c.peer.ID})
-	room.NotifyRosters()
+	c.hub.notifyRosters(room)
 	return nil
 }
 
@@ -195,11 +195,7 @@ func (c *Conn) enterCodeRoom(room *Room) {
 	if previous == nil {
 		return
 	}
-	if c.hub.removePeer(previous, c.peer) {
-		return
-	}
-	previous.Broadcast(&serverMessage{Type: msgPeerLeft, PeerID: c.peer.ID})
-	previous.NotifyRosters()
+	c.hub.departPeer(previous, c.peer)
 }
 
 // handleSignal forwards one encrypted WebRTC negotiation frame. The
@@ -241,10 +237,10 @@ func (c *Conn) adoptKey(pubKey string) error {
 // notifyEveryone refreshes the roster for every peer who can see this one.
 func (c *Conn) notifyEveryone() {
 	if c.netRoom != nil {
-		c.netRoom.NotifyRosters()
+		c.hub.notifyRosters(c.netRoom)
 	}
 	if c.codeRoom != nil {
-		c.codeRoom.NotifyRosters()
+		c.hub.notifyRosters(c.codeRoom)
 	}
 }
 
@@ -264,15 +260,12 @@ func (c *Conn) cleanup() {
 		if room == nil {
 			continue
 		}
-		empty := c.hub.removePeer(room, c.peer)
+		empty := c.hub.departPeer(room, c.peer)
 		if empty {
 			if room.Kind == roomKindCode {
 				c.hub.logf("coordinator: room %s closed (last peer left)", room.Code)
 			}
-			continue
 		}
-		room.Broadcast(&serverMessage{Type: msgPeerLeft, PeerID: c.peer.ID})
-		room.NotifyRosters()
 	}
 }
 

@@ -245,15 +245,6 @@ func (r *Room) Broadcast(msg *serverMessage) {
 	}
 }
 
-// NotifyRosters pushes each member its own view. Rosters are per-peer
-// rather than per-room because two peers in the same room can see
-// different people: one may also be in a code room the other is not.
-func (r *Room) NotifyRosters() {
-	for _, p := range r.members() {
-		p.Send(rosterFor(p))
-	}
-}
-
 func rosterFor(p *Peer) *serverMessage {
 	msg := &serverMessage{Type: msgRoster, Peers: p.Reachable()}
 	if code := p.CodeRoom(); code != nil {
@@ -479,6 +470,11 @@ func (h *Hub) Drop(room *Room) bool {
 func (h *Hub) removePeer(room *Room, p *Peer) bool {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	return h.removePeerLocked(room, p)
+}
+
+// removePeerLocked requires h.mu to be held for writing.
+func (h *Hub) removePeerLocked(room *Room, p *Peer) bool {
 	empty := room.Remove(p)
 	if empty {
 		h.dropRoomLocked(room)
@@ -496,6 +492,49 @@ func (h *Hub) dropRoomLocked(room *Room) bool {
 	}
 	delete(h.rooms, room.Key)
 	return true
+}
+
+// notifyRosters snapshots and enqueues each current member's view while
+// membership cannot change. Otherwise an older snapshot can be queued after
+// a newer one and make a client discard a peer that is still present.
+func (h *Hub) notifyRosters(room *Room) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	if h.rooms[room.Key] != room {
+		return
+	}
+	for _, p := range room.members() {
+		p.Send(rosterFor(p))
+	}
+}
+
+// departPeer removes membership and enqueues departure and roster updates in
+// one critical section. A recipient cannot change scope between its selection
+// and delivery, and a peer still reachable in another room is preserved.
+func (h *Hub) departPeer(room *Room, departed *Peer) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	empty := h.removePeerLocked(room, departed)
+	if empty {
+		return true
+	}
+	if h.rooms[room.Key] != room {
+		return false
+	}
+	for _, p := range room.members() {
+		if _, reachable := p.Find(departed.ID); !reachable {
+			p.Send(&serverMessage{Type: msgPeerLeft, PeerID: departed.ID})
+		}
+		p.Send(rosterFor(p))
+	}
+	return false
+}
+
+// sendRoster applies the same ordering to a repeat-hello scope refresh.
+func (h *Hub) sendRoster(p *Peer) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	p.Send(rosterFor(p))
 }
 
 // Rooms reports the current room count, for the health endpoint.

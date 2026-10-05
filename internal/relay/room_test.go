@@ -189,14 +189,7 @@ func TestHubJoinAndRetirementAreAtomic(t *testing.T) {
 					joined <- err
 				}
 			}()
-			deadline := time.Now().Add(5 * time.Second)
-			for h.mu.TryLock() {
-				h.mu.Unlock()
-				if time.Now().After(deadline) {
-					t.Fatal("join released the hub lock before adding membership")
-				}
-				runtime.Gosched()
-			}
+			waitForHubLock(t, h)
 			removed := make(chan bool, 1)
 			go func() { removed <- h.removePeer(room, a) }()
 			room.mu.Unlock()
@@ -224,6 +217,245 @@ func TestHubJoinAndRetirementAreAtomic(t *testing.T) {
 				t.Fatal("joining peer is missing from the registered room")
 			}
 		})
+	}
+}
+
+func waitForHubLock(t *testing.T, h *Hub) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for h.mu.TryLock() {
+		h.mu.Unlock()
+		if time.Now().After(deadline) {
+			t.Fatal("paused operation did not retain the hub lock")
+		}
+		runtime.Gosched()
+	}
+}
+
+func TestHubRosterRefreshIsOrderedWithMembership(t *testing.T) {
+	for _, refresh := range []string{"room", "hello"} {
+		for _, change := range []string{"join", "departure"} {
+			t.Run(refresh+"/"+change, func(t *testing.T) {
+				h := NewHub(DefaultLimits(), nil)
+				bob, alice := newPeer("bob", ""), newPeer("alice", "")
+				room, err := h.joinNetwork("192.0.2.1", bob)
+				if err != nil {
+					t.Fatalf("join bob: %v", err)
+				}
+				if change == "departure" {
+					if _, err := h.joinNetwork("192.0.2.1", alice); err != nil {
+						t.Fatalf("join alice: %v", err)
+					}
+				}
+				// Pause the actual roster snapshot at peer membership lookup.
+				// Membership must stay blocked until that snapshot is enqueued.
+				bob.mu.Lock()
+				locked := true
+				defer func() {
+					if locked {
+						bob.mu.Unlock()
+					}
+				}()
+				notified := make(chan struct{})
+				go func() {
+					if refresh == "room" {
+						h.notifyRosters(room)
+					} else {
+						h.sendRoster(bob)
+					}
+					close(notified)
+				}()
+				waitForHubLock(t, h)
+				changed := make(chan error, 1)
+				go func() {
+					if change == "join" {
+						_, err := h.joinNetwork("192.0.2.1", alice)
+						changed <- err
+					} else {
+						h.removePeer(room, alice)
+						changed <- nil
+					}
+				}()
+				bob.mu.Unlock()
+				locked = false
+				select {
+				case <-notified:
+				case <-time.After(5 * time.Second):
+					t.Fatal("roster notification did not finish")
+				}
+				select {
+				case err := <-changed:
+					if err != nil {
+						t.Fatalf("membership change: %v", err)
+					}
+				case <-time.After(5 * time.Second):
+					t.Fatal("membership change did not finish")
+				}
+				h.notifyRosters(room)
+				if len(bob.send) != 2 {
+					t.Fatalf("queued rosters = %d, want 2", len(bob.send))
+				}
+				first, last := <-bob.send, <-bob.send
+				if first.Type != msgRoster || last.Type != msgRoster {
+					t.Fatal("refresh did not queue roster messages")
+				}
+				before, after := 0, 1
+				if change == "departure" {
+					before, after = 1, 0
+				}
+				if len(first.Peers) != before || len(last.Peers) != after {
+					t.Fatalf("roster order = %v then %v, want %d then %d peers", first.Peers, last.Peers, before, after)
+				}
+				if after == 1 && last.Peers[0].ID != alice.ID {
+					t.Fatal("final roster lost the currently joined peer")
+				}
+			})
+		}
+	}
+}
+
+func TestHubRosterNotificationRejectsRetiredRoom(t *testing.T) {
+	h := NewHub(DefaultLimits(), nil)
+	oldPeer, currentPeer := newPeer("old", ""), newPeer("current", "")
+	old, err := h.joinNetwork("192.0.2.1", oldPeer)
+	if err != nil {
+		t.Fatalf("old join: %v", err)
+	}
+	h.removePeer(old, oldPeer)
+	current, err := h.joinNetwork("192.0.2.1", currentPeer)
+	if err != nil {
+		t.Fatalf("current join: %v", err)
+	}
+	// An obsolete room reference must not publish rosters after retirement,
+	// even if an old caller has retained and populated that reference.
+	if err := old.Add(oldPeer); err != nil {
+		t.Fatalf("populate obsolete reference: %v", err)
+	}
+	h.notifyRosters(old)
+	if len(oldPeer.send) != 0 || len(currentPeer.send) != 0 {
+		t.Fatal("retired room published a roster")
+	}
+	h.notifyRosters(current)
+	if len(currentPeer.send) != 1 {
+		t.Fatal("current room did not publish its roster")
+	}
+}
+
+func TestHubDepartureNotifiesOnlyCurrentScope(t *testing.T) {
+	for _, scope := range []string{"lobby", "shared-code", "moved-code"} {
+		t.Run(scope, func(t *testing.T) {
+			h := NewHub(DefaultLimits(), nil)
+			alice, bob := newPeer("alice", ""), newPeer("bob", "")
+			lobby, err := h.joinNetwork("192.0.2.1", alice)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := h.joinNetwork("192.0.2.1", bob); err != nil {
+				t.Fatal(err)
+			}
+			code, err := h.createRoomForPeer("192.0.2.1", alice)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if scope != "lobby" {
+				if _, err := h.joinRoom(code.Code, "192.0.2.1", bob); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if scope == "moved-code" {
+				h.removePeer(lobby, bob)
+			}
+			h.departPeer(lobby, alice)
+			if scope == "moved-code" {
+				if len(bob.send) != 0 {
+					t.Fatal("former lobby member received an obsolete departure")
+				}
+				h.notifyRosters(code)
+			}
+			if scope == "lobby" {
+				if len(bob.send) != 2 {
+					t.Fatalf("departure messages = %d, want 2", len(bob.send))
+				}
+				left, roster := <-bob.send, <-bob.send
+				if left.Type != msgPeerLeft || left.PeerID != alice.ID || roster.Type != msgRoster || len(roster.Peers) != 0 {
+					t.Fatal("departure was not followed by the current empty roster")
+				}
+			} else {
+				if len(bob.send) != 1 {
+					t.Fatalf("current code-room messages = %d, want 1", len(bob.send))
+				}
+				roster := <-bob.send
+				if roster.Type != msgRoster || len(roster.Peers) != 1 || roster.Peers[0].ID != alice.ID || roster.Peers[0].Source != roomKindCode {
+					t.Fatal("departure discarded a peer still reachable through the code room")
+				}
+			}
+		})
+	}
+}
+
+func TestHubDepartureCannotOvertakeScopeChange(t *testing.T) {
+	h := NewHub(DefaultLimits(), nil)
+	alice, bob := newPeer("alice", ""), newPeer("bob", "")
+	lobby, err := h.joinNetwork("192.0.2.1", alice)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.joinNetwork("192.0.2.1", bob); err != nil {
+		t.Fatal(err)
+	}
+	code, err := h.createRoomForPeer("192.0.2.1", alice)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Pause recipient lookup inside the actual departure. Bob's scope change
+	// must wait until the old departure and its correcting roster are queued.
+	bob.mu.Lock()
+	locked := true
+	defer func() {
+		if locked {
+			bob.mu.Unlock()
+		}
+	}()
+	departed := make(chan bool, 1)
+	go func() { departed <- h.departPeer(lobby, alice) }()
+	waitForHubLock(t, h)
+	moved := make(chan error, 1)
+	go func() {
+		if _, err := h.joinRoom(code.Code, "192.0.2.1", bob); err != nil {
+			moved <- err
+			return
+		}
+		h.departPeer(lobby, bob)
+		h.notifyRosters(code)
+		moved <- nil
+	}()
+	bob.mu.Unlock()
+	locked = false
+	select {
+	case empty := <-departed:
+		if empty {
+			t.Fatal("Alice's departure unexpectedly retired Bob's lobby")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("departure did not finish")
+	}
+	select {
+	case err := <-moved:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("scope change did not finish")
+	}
+	if len(bob.send) != 3 {
+		t.Fatalf("queued scope messages = %d, want 3", len(bob.send))
+	}
+	left, oldRoster, currentRoster := <-bob.send, <-bob.send, <-bob.send
+	if left.Type != msgPeerLeft || left.PeerID != alice.ID || oldRoster.Type != msgRoster || len(oldRoster.Peers) != 0 {
+		t.Fatal("old lobby departure did not precede its empty roster")
+	}
+	if currentRoster.Type != msgRoster || currentRoster.Code != code.Code || len(currentRoster.Peers) != 1 || currentRoster.Peers[0].ID != alice.ID {
+		t.Fatal("old lobby departure overtook the current code-room roster")
 	}
 }
 
