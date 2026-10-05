@@ -26,26 +26,34 @@ type Options struct {
 	// if the coordinator is ever exposed directly, since otherwise a client can
 	// forge the header and walk around per-IP rate limits.
 	TrustProxy bool
+	// ClientIPHeader selects one header overwritten by a trusted ingress, such
+	// as CF-Connecting-IP on a public Render web service. It requires TrustProxy.
+	// Missing, repeated, or invalid values fail closed instead of placing clients
+	// from different networks into a shared proxy-address discovery group.
+	// Leave empty for the packaged nginx X-Real-IP / X-Forwarded-For behavior.
+	ClientIPHeader string
 }
 
 // Server exposes health, room membership, and encrypted WebRTC signaling.
 type Server struct {
-	hub        *Hub
-	logger     *logger.Logger
-	origins    []string
-	allowAll   bool
-	trustProxy bool
-	started    time.Time
+	hub            *Hub
+	logger         *logger.Logger
+	origins        []string
+	allowAll       bool
+	trustProxy     bool
+	clientIPHeader string
+	started        time.Time
 }
 
 // NewServer constructs a coordinator server.
 func NewServer(opts Options) *Server {
 	limits := opts.Limits.withDefaults()
 	s := &Server{
-		hub:        NewHub(limits, opts.Logger),
-		logger:     opts.Logger,
-		trustProxy: opts.TrustProxy,
-		started:    time.Now(),
+		hub:            NewHub(limits, opts.Logger),
+		logger:         opts.Logger,
+		trustProxy:     opts.TrustProxy,
+		clientIPHeader: strings.TrimSpace(opts.ClientIPHeader),
+		started:        time.Now(),
 	}
 	for _, origin := range opts.AllowedOrigins {
 		trimmed := strings.TrimSpace(strings.TrimSuffix(origin, "/"))
@@ -85,6 +93,11 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
+	clientIP := s.clientIP(r)
+	if s.clientIPHeader != "" && clientIP == "" {
+		http.Error(w, "trusted client address unavailable", http.StatusServiceUnavailable)
+		return
+	}
 	opts := &websocket.AcceptOptions{}
 	if s.allowAll {
 		opts.InsecureSkipVerify = true
@@ -93,10 +106,10 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 	}
 	ws, err := websocket.Accept(w, r, opts)
 	if err != nil {
-		s.errorf("coordinator: websocket accept from %s: %v", s.clientIP(r), err)
+		s.errorf("coordinator: websocket accept from %s: %v", clientIP, err)
 		return
 	}
-	conn, err := newConn(ws, s.hub, s.clientIP(r))
+	conn, err := newConn(ws, s.hub, clientIP)
 	if err != nil {
 		_ = ws.Close(websocket.StatusInternalError, "could not allocate peer id")
 		return
@@ -157,8 +170,24 @@ func (s *Server) originPatterns() []string {
 	return out
 }
 
-// clientIP resolves the address used for rate limiting.
+// clientIP resolves the address used for rate limiting and network membership.
+// An empty address in explicit-header mode must be rejected before accepting
+// a WebSocket; it must never fall back to a shared ingress address.
 func (s *Server) clientIP(r *http.Request) string {
+	if s.clientIPHeader != "" {
+		if !s.trustProxy {
+			return ""
+		}
+		values := r.Header.Values(s.clientIPHeader)
+		if len(values) != 1 {
+			return ""
+		}
+		ip := net.ParseIP(strings.TrimSpace(values[0]))
+		if ip == nil {
+			return ""
+		}
+		return ip.String()
+	}
 	if s.trustProxy {
 		// The packaged nginx configuration overwrites X-Real-IP with the
 		// address of its client, so prefer it over the client-controlled

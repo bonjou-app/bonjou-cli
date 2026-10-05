@@ -9,9 +9,9 @@ set -euo pipefail
 
 ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 
-SSH_HOST="${BONJOU_RELAY_SSH_HOST:-oracle}"
-RELAY_HOST="${BONJOU_RELAY_HOSTNAME:-bonjou.80-225-228-65.sslip.io}"
-RELAY_ORIGINS="${BONJOU_RELAY_ORIGINS:-*}"
+SSH_HOST="${BONJOU_RELAY_SSH_HOST:?Set BONJOU_RELAY_SSH_HOST to a verified SSH host or alias}"
+RELAY_HOST="${BONJOU_RELAY_HOSTNAME:?Set BONJOU_RELAY_HOSTNAME to the replacement coordinator hostname}"
+RELAY_ORIGINS="${BONJOU_RELAY_ORIGINS:-https://bonjou.vercel.app}"
 GOARCH_TARGET="${BONJOU_RELAY_GOARCH:-arm64}"
 
 BINARY="$ROOT_DIR/dist/bin/bonjou-relay-linux-$GOARCH_TARGET"
