@@ -38,7 +38,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: bonjou-app/bonjou-web
-          ref: 59e2f8a7fd3ad17697075889693c89bcf08b1521
+          ref: 3c96da3448d5022bdc6b9f199446c1f49d673982
           path: web
           persist-credentials: false
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0

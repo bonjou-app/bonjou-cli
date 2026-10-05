@@ -49,8 +49,10 @@ For protocol changes:
    Run `npm run check:protocol`, `npm test`, and `npm run build` there. For an
    unpublished Go revision, pass its checkout path to `check:protocol` locally.
 4. Update the pinned web revision in this repository's CI. That job tests the
-   browser against the candidate Go vectors and runs an encrypted transfer
-   through the candidate Go relay.
+   browser against the candidate Go vectors and smoke-tests network-scoped room
+   membership, opaque encrypted signaling, and the absence of payload routes in
+   the candidate Go coordinator. The web browser suite exercises approved,
+   authenticated payload transfers directly over WebRTC.
 5. Require passing checks in both repositories before releasing a coordinated
    change. Never silently skip missing fixtures or use floating compatibility
    references.
