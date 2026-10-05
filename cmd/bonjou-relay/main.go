@@ -31,12 +31,18 @@ func main() {
 	logDir := flag.String("log-dir", defaultLogDir(), "directory for coordinator logs")
 	trustProxy := flag.Bool("trust-proxy", true,
 		"read the client address from X-Forwarded-For; only correct behind a trusted reverse proxy")
+	clientIPHeader := flag.String("client-ip-header", "",
+		"single client-IP header overwritten by the trusted ingress; requires -trust-proxy and rejects missing or invalid values")
 	showVersion := flag.Bool("version", false, "print version and exit")
 	flag.Parse()
 
 	if *showVersion {
 		_, _ = fmt.Fprintf(os.Stdout, "bonjou-relay %s\n", version.Version)
 		return
+	}
+	if strings.TrimSpace(*clientIPHeader) != "" && !*trustProxy {
+		_, _ = fmt.Fprintln(os.Stderr, "bonjou-relay: -client-ip-header requires -trust-proxy")
+		os.Exit(1)
 	}
 
 	lg, err := logger.New(*logDir)
@@ -53,6 +59,7 @@ func main() {
 		Logger:         lg,
 		AllowedOrigins: strings.Split(*origins, ","),
 		TrustProxy:     *trustProxy,
+		ClientIPHeader: *clientIPHeader,
 	})
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

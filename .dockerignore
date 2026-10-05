@@ -1,0 +1,25 @@
+# Only build inputs enter the context. In particular, do not send local state,
+# credentials, received files, Git history, or development artifacts to a host.
+*
+!go.mod
+!go.sum
+!LICENSE
+!cmd/
+!cmd/**
+!internal/
+!internal/**
+!packaging/
+!packaging/relay/
+!packaging/relay/Dockerfile
+!packaging/relay/start-container.sh
+
+# Keep local files excluded even when they are placed inside a source folder.
+**/.env
+**/.env.*
+**/*.pem
+**/*.key
+**/*.p12
+**/*.pfx
+**/*.log
+**/.bonjou/
+**/.DS_Store
