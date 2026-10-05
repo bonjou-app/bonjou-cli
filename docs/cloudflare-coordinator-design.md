@@ -28,7 +28,9 @@ browser and Go protocol-v2 crypto and known-answer fixtures remain unchanged.
 WebSocket attachments contain only versioned peer ID, public session key, hashed
 network identity, and current room membership. Rebuild the hub from live attached
 sockets after hibernation. Retire rooms when their last peer departs. Preserve
-creation-rate windows across hibernation using SQLite metadata; never persist
+creation-rate windows and a random routing salt across hibernation using SQLite
+metadata. Salt stored network identities so source-address dictionaries cannot
+recover them from routing state; never persist
 signaling ciphertext or application content. Avoid recurring timers.
 
 Preserve canonical Go frame sizes, room capacities, code alphabet and format,

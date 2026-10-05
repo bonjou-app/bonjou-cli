@@ -1,0 +1,19 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "bonjou-coordinator",
+  "main": "worker.js",
+  "compatibility_date": "2026-10-01",
+  "workers_dev": true,
+  "vars": {
+    "ALLOWED_ORIGINS": "https://bonjou.vercel.app"
+  },
+  "durable_objects": {
+    "bindings": [
+      { "name": "COORDINATOR_HUB", "class_name": "BonjouCoordinatorHub" }
+    ]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["BonjouCoordinatorHub"] }
+  ],
+  "observability": { "enabled": false }
+}

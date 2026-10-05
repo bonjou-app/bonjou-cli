@@ -6,10 +6,55 @@ devices. The coordinator serves only `GET /healthz` and the `GET /ws` WebSocket:
 it groups candidates by their source address and forwards encrypted WebRTC
 signaling. Files, messages, profiles, and encryption keys remain on the browsers.
 
-Use one instance. Candidate and room state lives in memory, so two independent
+For the Go service, use one instance. Candidate and room state lives in memory, so two independent
 instances split the discovery group and rooms. A restart ends those sessions;
 clients reconnect and create or join a new session. No database or persistent
 payload disk is required.
+
+## Cloudflare Workers Free
+
+The Cloudflare adapter lives in `packaging/relay/cloudflare/`. It preserves the
+same signaling messages and source-network room boundaries as the Go service,
+using one hibernating SQLite Durable Object for all separate network buckets.
+The two Go binaries remain the portable server option.
+
+From that directory, use Node.js 24 and the locked tooling:
+
+```sh
+npm ci
+npm test
+npm exec -- wrangler deploy --dry-run
+npm exec -- wrangler login
+npm exec -- wrangler deploy
+```
+
+Keep the account on **Workers Free**. SQLite Durable Objects support that plan;
+no card or paid upgrade is needed for this architecture. Free daily quotas can
+reject requests when exhausted. Confirm the account's actual onboarding and
+plan before deploying. See [Workers](https://www.cloudflare.com/products/workers/)
+and [Durable Object pricing](https://developers.cloudflare.com/durable-objects/platform/pricing/).
+
+Set `ALLOWED_ORIGINS` in `wrangler.jsonc` to the exact website origins you own.
+The outer Worker validates Cloudflare's connecting IP and rejects Worker
+subrequests; it never uses caller forwarding headers to choose a network.
+WebSocket attachments retain only public session keys and routing membership;
+SQLite retains a random routing salt and short-lived creation-rate counters.
+Stored network identities are salted; neither stores signaling
+ciphertext, profiles, chat, file metadata, or payloads.
+
+The Workers WebSocket API does not expose send completion or backpressure, so
+the adapter cannot reproduce Go's 64-frame queue and 10-second write deadline.
+Frame sizes and membership limits still apply. Deployments and quota exhaustion
+can interrupt sessions; browsers reconnect and may need to recreate or rejoin
+a room. Hibernation restores routing from live WebSocket attachments.
+Canonical browser frames retain the Go control protocol. Noncanonical JSON
+with duplicate field names follows JavaScript `JSON.parse` semantics, which
+can differ from Go's decoder; supported browser clients do not emit duplicates.
+
+Run the deployed ingress-header and separate-network checks before changing
+the website's endpoint. Cloudflare's source address identifies shared internet
+egress, which may include CGNAT or VPN users; it is not proof of a physical LAN.
+Use `VITE_COORDINATOR_URL` with the actual successful `workers.dev` HTTPS URL.
 
 ## Build and run the portable image
 
