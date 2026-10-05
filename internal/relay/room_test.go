@@ -2,6 +2,7 @@ package relay
 
 import (
 	"errors"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -33,12 +34,196 @@ func TestHubDropRemovesRoom(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateRoom: %v", err)
 	}
-	h.Drop(room.Code)
+	if !h.Drop(room) {
+		t.Fatal("Drop did not retire the empty room")
+	}
 	if _, err := h.Room(room.Code, "192.0.2.1"); !errors.Is(err, errRoomNotFound) {
 		t.Fatalf("after Drop, lookup error = %v, want errRoomNotFound", err)
 	}
 	if h.Rooms() != 0 {
 		t.Fatalf("Rooms() = %d, want 0", h.Rooms())
+	}
+}
+
+func TestHubDropPreservesRoomRejoinedAfterLastRemoval(t *testing.T) {
+	h := NewHub(DefaultLimits(), nil)
+	a, b, c := newPeer("a", ""), newPeer("b", ""), newPeer("c", "")
+	room, err := h.joinNetwork("192.0.2.1", a)
+	if err != nil {
+		t.Fatalf("join a: %v", err)
+	}
+	// Reproduce a last-peer cleanup whose empty observation predates a join.
+	if !room.Remove(a) {
+		t.Fatal("room still has members after removing a")
+	}
+	joined, err := h.joinNetwork("192.0.2.1", b)
+	if err != nil {
+		t.Fatalf("join b: %v", err)
+	}
+	if joined != room {
+		t.Fatal("b did not join the still-registered room")
+	}
+	if h.Drop(room) {
+		t.Fatal("stale empty observation retired a room with a new member")
+	}
+	joined, err = h.joinNetwork("192.0.2.1", c)
+	if err != nil {
+		t.Fatalf("join c: %v", err)
+	}
+	if joined != room {
+		t.Fatal("the rejoined room was orphaned from network discovery")
+	}
+	if _, ok := b.Find(c.ID); !ok {
+		t.Fatal("new network members cannot address one another")
+	}
+}
+
+func TestHubDropCannotRemoveReplacementNetworkRoom(t *testing.T) {
+	h := NewHub(DefaultLimits(), nil)
+	a, b, c := newPeer("a", ""), newPeer("b", ""), newPeer("c", "")
+	old, err := h.joinNetwork("192.0.2.1", a)
+	if err != nil {
+		t.Fatalf("join a: %v", err)
+	}
+	if !h.removePeer(old, a) {
+		t.Fatal("last departure did not retire the old room")
+	}
+	replacement, err := h.joinNetwork("192.0.2.1", b)
+	if err != nil {
+		t.Fatalf("join b: %v", err)
+	}
+	if replacement == old || replacement.Key != old.Key {
+		t.Fatal("network did not create a replacement under its existing key")
+	}
+	if h.Drop(old) {
+		t.Fatal("stale room pointer retired its replacement")
+	}
+	// Repeated cleanup must also leave the replacement registered.
+	h.removePeer(old, a)
+	joined, err := h.joinNetwork("192.0.2.1", c)
+	if err != nil {
+		t.Fatalf("join c: %v", err)
+	}
+	if joined != replacement || h.Rooms() != 1 {
+		t.Fatal("stale cleanup orphaned or removed the replacement room")
+	}
+	if _, ok := b.Find(c.ID); !ok {
+		t.Fatal("replacement members cannot address one another")
+	}
+}
+
+func TestHubCodeRoomDepartureAndJoinOrdering(t *testing.T) {
+	for _, joinFirst := range []bool{true, false} {
+		t.Run(strconv.FormatBool(joinFirst), func(t *testing.T) {
+			h := NewHub(DefaultLimits(), nil)
+			a, b := newPeer("a", ""), newPeer("b", "")
+			room, err := h.createRoomForPeer("192.0.2.1", a)
+			if err != nil {
+				t.Fatalf("create: %v", err)
+			}
+			if _, err := h.joinRoom(room.Code, "198.51.100.1", newPeer("outside", "")); !errors.Is(err, errNetworkMatch) {
+				t.Fatalf("cross-network join = %v, want errNetworkMatch", err)
+			}
+			if joinFirst {
+				joined, err := h.joinRoom(room.Code, "192.0.2.1", b)
+				if err != nil || joined != room {
+					t.Fatalf("join before departure = %v, room = %p", err, joined)
+				}
+				if h.removePeer(room, a) {
+					t.Fatal("departure retired a code room with a joined member")
+				}
+				if found, err := h.Room(room.Code, "192.0.2.1"); err != nil || found != room {
+					t.Fatalf("remaining member's room lookup = %v, room = %p", err, found)
+				}
+				h.sweep(time.Now().Add(2 * h.limits.RoomIdleTTL))
+				if h.Rooms() != 1 || b.CodeRoom() != room {
+					t.Fatal("idle retirement removed a populated code room")
+				}
+			} else {
+				if !h.removePeer(room, a) {
+					t.Fatal("last departure did not retire the code room")
+				}
+				if _, err := h.joinRoom(room.Code, "192.0.2.1", b); !errors.Is(err, errRoomNotFound) {
+					t.Fatalf("join after retirement = %v, want errRoomNotFound", err)
+				}
+				if h.Rooms() != 0 || b.CodeRoom() != nil {
+					t.Fatal("join attached a peer to a retired code room")
+				}
+			}
+		})
+	}
+}
+
+func TestHubJoinAndRetirementAreAtomic(t *testing.T) {
+	for _, kind := range []string{roomKindNetwork, roomKindCode} {
+		t.Run(kind, func(t *testing.T) {
+			h := NewHub(DefaultLimits(), nil)
+			a, b := newPeer("a", ""), newPeer("b", "")
+			var room *Room
+			var err error
+			if kind == roomKindNetwork {
+				room, err = h.joinNetwork("192.0.2.1", a)
+			} else {
+				room, err = h.createRoomForPeer("192.0.2.1", a)
+			}
+			if err != nil {
+				t.Fatalf("initial join: %v", err)
+			}
+			// Pause membership insertion at the room lock. The joining operation
+			// must retain the hub lock until membership exists, so final departure
+			// cannot retire the pointer obtained by the joining connection.
+			room.mu.Lock()
+			locked := true
+			defer func() {
+				if locked {
+					room.mu.Unlock()
+				}
+			}()
+			joined := make(chan error, 1)
+			go func() {
+				if kind == roomKindNetwork {
+					_, err := h.joinNetwork("192.0.2.1", b)
+					joined <- err
+				} else {
+					_, err := h.joinRoom(room.Code, "192.0.2.1", b)
+					joined <- err
+				}
+			}()
+			deadline := time.Now().Add(5 * time.Second)
+			for h.mu.TryLock() {
+				h.mu.Unlock()
+				if time.Now().After(deadline) {
+					t.Fatal("join released the hub lock before adding membership")
+				}
+				runtime.Gosched()
+			}
+			removed := make(chan bool, 1)
+			go func() { removed <- h.removePeer(room, a) }()
+			room.mu.Unlock()
+			locked = false
+			select {
+			case err := <-joined:
+				if err != nil {
+					t.Fatalf("join: %v", err)
+				}
+			case <-time.After(5 * time.Second):
+				t.Fatal("join did not complete")
+			}
+			select {
+			case empty := <-removed:
+				if empty {
+					t.Fatal("final departure retired a joining peer's room")
+				}
+			case <-time.After(5 * time.Second):
+				t.Fatal("departure did not complete")
+			}
+			if h.Rooms() != 1 {
+				t.Fatal("joining peer's room is not registered")
+			}
+			if found, ok := room.Peer(b.ID); !ok || found != b {
+				t.Fatal("joining peer is missing from the registered room")
+			}
+		})
 	}
 }
 

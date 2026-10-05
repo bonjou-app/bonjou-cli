@@ -191,7 +191,8 @@ func newRoom(key, code, kind string, maxPeers int) *Room {
 	}
 }
 
-// Add places a peer in the room.
+// Add places a peer in the room. Membership changes in hub-owned rooms must
+// go through the hub so lookup, joining, and retirement stay atomic.
 func (r *Room) Add(p *Peer) error {
 	r.mu.Lock()
 	if len(r.peers) >= r.maxPeers {
@@ -268,12 +269,6 @@ func (r *Room) Touch() {
 	r.mu.Unlock()
 }
 
-func (r *Room) idleSince() time.Time {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	return r.lastActive
-}
-
 func (r *Room) size() int {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -347,10 +342,29 @@ func (h *Hub) networkKey(ip string) string {
 // past the cap the coordinator stops grouping rather than introducing strangers
 // to each other.
 func (h *Hub) NetworkRoom(ip string) (*Room, error) {
-	key := h.networkKey(ip)
-
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	return h.networkRoomLocked(ip)
+}
+
+// joinNetwork looks up or creates a network room and joins it before another
+// connection can retire it. A room pointer alone is not a membership lease.
+func (h *Hub) joinNetwork(ip string, p *Peer) (*Room, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	room, err := h.networkRoomLocked(ip)
+	if err != nil {
+		return nil, err
+	}
+	if err := room.Add(p); err != nil {
+		return nil, err
+	}
+	return room, nil
+}
+
+// networkRoomLocked requires h.mu to be held for writing.
+func (h *Hub) networkRoomLocked(ip string) (*Room, error) {
+	key := h.networkKey(ip)
 	if room, ok := h.rooms[key]; ok {
 		return room, nil
 	}
@@ -367,12 +381,33 @@ func (h *Hub) NetworkRoom(ip string) (*Room, error) {
 // astronomically unlikely event of a collision rather than trusting
 // randomness blindly.
 func (h *Hub) CreateRoom(ip string) (*Room, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.createRoomLocked(ip)
+}
+
+// createRoomForPeer publishes a room together with its first member, so the
+// idle sweeper cannot retire it between creation and joining.
+func (h *Hub) createRoomForPeer(ip string, p *Peer) (*Room, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	room, err := h.createRoomLocked(ip)
+	if err != nil {
+		return nil, err
+	}
+	if err := room.Add(p); err != nil {
+		h.dropRoomLocked(room)
+		return nil, err
+	}
+	return room, nil
+}
+
+// createRoomLocked requires h.mu to be held for writing.
+func (h *Hub) createRoomLocked(ip string) (*Room, error) {
 	networkKey := h.networkKey(ip)
 	if !h.rl.allow(networkGroup(ip), time.Now()) {
 		return nil, errRateLimited
 	}
-	h.mu.Lock()
-	defer h.mu.Unlock()
 	if len(h.rooms) >= h.limits.MaxRooms {
 		return nil, errAtCapacity
 	}
@@ -395,12 +430,32 @@ func (h *Hub) CreateRoom(ip string) (*Room, error) {
 // Room resolves a code for a caller on the room's source network, tolerating
 // user formatting. Possessing a room link never grants cross-network access.
 func (h *Hub) Room(code, ip string) (*Room, error) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return h.roomLocked(code, ip)
+}
+
+// joinRoom keeps code lookup, network authorization, and membership in the
+// same critical section as last-peer removal and idle retirement.
+func (h *Hub) joinRoom(code, ip string, p *Peer) (*Room, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	room, err := h.roomLocked(code, ip)
+	if err != nil {
+		return nil, err
+	}
+	if err := room.Add(p); err != nil {
+		return nil, err
+	}
+	return room, nil
+}
+
+// roomLocked requires h.mu to be held for reading or writing.
+func (h *Hub) roomLocked(code, ip string) (*Room, error) {
 	normalized := normalizeCode(code)
 	if normalized == "" {
 		return nil, errRoomNotFound
 	}
-	h.mu.RLock()
-	defer h.mu.RUnlock()
 	room, ok := h.rooms[normalized]
 	if !ok || room.Kind != roomKindCode {
 		return nil, errRoomNotFound
@@ -411,11 +466,36 @@ func (h *Hub) Room(code, ip string) (*Room, error) {
 	return room, nil
 }
 
-// Drop removes a room, used when its last peer leaves.
-func (h *Hub) Drop(key string) {
+// Drop retires an exact room only while it is empty. An old room pointer must
+// never remove a replacement that happens to have the same network key.
+func (h *Hub) Drop(room *Room) bool {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	delete(h.rooms, key)
+	return h.dropRoomLocked(room)
+}
+
+// removePeer atomically removes membership and retires an empty room. Joining
+// connections cannot obtain a room between its final removal and retirement.
+func (h *Hub) removePeer(room *Room, p *Peer) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	empty := room.Remove(p)
+	if empty {
+		h.dropRoomLocked(room)
+	}
+	return empty
+}
+
+// dropRoomLocked requires h.mu to be held for writing. All hub lifecycle
+// operations acquire the hub lock before a room lock.
+func (h *Hub) dropRoomLocked(room *Room) bool {
+	room.mu.Lock()
+	defer room.mu.Unlock()
+	if h.rooms[room.Key] != room || len(room.peers) != 0 {
+		return false
+	}
+	delete(h.rooms, room.Key)
+	return true
 }
 
 // Rooms reports the current room count, for the health endpoint.
@@ -444,11 +524,14 @@ func (h *Hub) sweep(now time.Time) {
 	h.mu.Lock()
 	stale := make([]*Room, 0)
 	for key, room := range h.rooms {
-		if room.size() > 0 || now.Sub(room.idleSince()) < h.limits.RoomIdleTTL {
+		room.mu.Lock()
+		if len(room.peers) > 0 || now.Sub(room.lastActive) < h.limits.RoomIdleTTL {
+			room.mu.Unlock()
 			continue
 		}
 		stale = append(stale, room)
 		delete(h.rooms, key)
+		room.mu.Unlock()
 	}
 	h.mu.Unlock()
 

@@ -138,13 +138,8 @@ func (c *Conn) handleHello(msg *clientMessage) error {
 		return nil
 	}
 
-	room, err := c.hub.NetworkRoom(c.ip)
+	room, err := c.hub.joinNetwork(c.ip, c.peer)
 	if err != nil {
-		c.peer.Send(&serverMessage{Type: msgJoined, PeerID: c.peer.ID})
-		c.peer.Send(errorMessage(codeForError(err), err.Error()))
-		return nil
-	}
-	if err := room.Add(c.peer); err != nil {
 		c.peer.Send(&serverMessage{Type: msgJoined, PeerID: c.peer.ID})
 		c.peer.Send(errorMessage(codeForError(err), err.Error()))
 		return nil
@@ -162,12 +157,8 @@ func (c *Conn) handleCreate(msg *clientMessage) error {
 	if c.peer.PubKey == "" {
 		return errNotInRoom
 	}
-	room, err := c.hub.CreateRoom(c.ip)
+	room, err := c.hub.createRoomForPeer(c.ip, c.peer)
 	if err != nil {
-		return err
-	}
-	if err := room.Add(c.peer); err != nil {
-		c.hub.Drop(room.Key)
 		return err
 	}
 	c.enterCodeRoom(room)
@@ -184,11 +175,8 @@ func (c *Conn) handleJoin(msg *clientMessage) error {
 	if c.peer.PubKey == "" {
 		return errNotInRoom
 	}
-	room, err := c.hub.Room(msg.Code, c.ip)
+	room, err := c.hub.joinRoom(msg.Code, c.ip, c.peer)
 	if err != nil {
-		return err
-	}
-	if err := room.Add(c.peer); err != nil {
 		return err
 	}
 	c.enterCodeRoom(room)
@@ -207,8 +195,7 @@ func (c *Conn) enterCodeRoom(room *Room) {
 	if previous == nil {
 		return
 	}
-	if previous.Remove(c.peer) {
-		c.hub.Drop(previous.Key)
+	if c.hub.removePeer(previous, c.peer) {
 		return
 	}
 	previous.Broadcast(&serverMessage{Type: msgPeerLeft, PeerID: c.peer.ID})
@@ -277,9 +264,8 @@ func (c *Conn) cleanup() {
 		if room == nil {
 			continue
 		}
-		empty := room.Remove(c.peer)
+		empty := c.hub.removePeer(room, c.peer)
 		if empty {
-			c.hub.Drop(room.Key)
 			if room.Kind == roomKindCode {
 				c.hub.logf("coordinator: room %s closed (last peer left)", room.Code)
 			}
