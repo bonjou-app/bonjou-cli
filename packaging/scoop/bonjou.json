@@ -1,12 +1,12 @@
 {
   "version": "1.2.0",
   "description": "Terminal-based LAN chat and transfer application",
-  "homepage": "https://github.com/bonjou-app/bonjou-cli",
-  "icon": "https://raw.githubusercontent.com/bonjou-app/bonjou-cli/main/docs/assets/logo.png",
+  "homepage": "https://github.com/kodolabs-hq/bonjou-cli",
+  "icon": "https://raw.githubusercontent.com/kodolabs-hq/bonjou-cli/main/docs/assets/logo.png",
   "license": "MIT",
   "architecture": {
     "64bit": {
-      "url": "https://github.com/bonjou-app/bonjou-cli/releases/download/v1.2.0/bonjou.exe",
+      "url": "https://github.com/kodolabs-hq/bonjou-cli/releases/download/v1.2.0/bonjou.exe",
       "hash": "1891c8063916432cc8fb79901d086ab7e94931cbe9d356a2113f2323bb5221ff",
       "bin": "bonjou.exe"
     }
@@ -16,7 +16,7 @@
   "autoupdate": {
     "architecture": {
       "64bit": {
-        "url": "https://github.com/bonjou-app/bonjou-cli/releases/download/v$version/bonjou.exe"
+        "url": "https://github.com/kodolabs-hq/bonjou-cli/releases/download/v$version/bonjou.exe"
       }
     }
   }

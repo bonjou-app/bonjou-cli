@@ -51,7 +51,7 @@ jobs:
           persist-credentials: false
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          repository: bonjou-app/bonjou-web
+          repository: kodolabs-hq/bonjou-web
           ref: 3ae9e1b8892b8aad2d908e811139f844c7a3e737
           path: web
           persist-credentials: false
@@ -144,7 +144,7 @@ jobs:
           persist-credentials: false
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          repository: bonjou-app/bonjou-web
+          repository: kodolabs-hq/bonjou-web
           ref: 3ae9e1b8892b8aad2d908e811139f844c7a3e737
           path: web
           persist-credentials: false

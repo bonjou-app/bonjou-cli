@@ -1,7 +1,7 @@
 # Security
 
 Report suspected vulnerabilities through
-[GitHub's private vulnerability reporting](https://github.com/bonjou-app/bonjou-cli/security/advisories/new).
+[GitHub's private vulnerability reporting](https://github.com/kodolabs-hq/bonjou-cli/security/advisories/new).
 Include affected revisions, reproduction steps using synthetic data, and impact.
 Do not include real credentials, identity keys, or user payloads in public issues.
 

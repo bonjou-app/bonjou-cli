@@ -28,7 +28,7 @@ follow this file. Read toolchain versions and scripts from the current manifests
 ## Product and Repository Boundaries
 
 - Bonjou is an open-source project. Keep product source, protocol documentation, synthetic test vectors, and reusable self-hosting templates suitable for public distribution. A private repository is not a substitute for secret management.
-- This repository contains the Go CLI, Go relay, and canonical protocol vectors. The marketing website and browser app live in the sibling `bonjou-app/bonjou-web` repository. Each product builds independently; no parent repository or submodule is required.
+- This repository contains the Go CLI, Go relay, and canonical protocol vectors. The marketing website and browser app live in the sibling `kodolabs-hq/bonjou-web` repository. Each product builds independently; no parent repository or submodule is required.
 - The approved organization architecture and migration state are documented in [docs/repository-architecture.md](docs/repository-architecture.md). Update repository links and documentation together when ownership changes; preserve history, license notices, releases, and working installation channels.
 - The Go coordinator has its own deployment but stays in this module under the historical bonjou-relay binary name. It groups source-network candidates and forwards opaque encrypted WebRTC signaling only.
 - Go owns `internal/network/testdata/protocol-v2.json`. The web repo keeps a copy pinned to a reviewed CLI commit with a checksum. The browser compatibility job checks a pinned web revision against this repository's candidate vectors and relay. Coordinate changes through linked PRs and explicit revision updates.
@@ -88,7 +88,7 @@ follow this file. Read toolchain versions and scripts from the current manifests
 ## Links
 
 - [CLAUDE.md](CLAUDE.md)
-- [Web design](https://github.com/bonjou-app/bonjou-web/blob/main/DESIGN.md)
+- [Web design](https://github.com/kodolabs-hq/bonjou-web/blob/main/DESIGN.md)
 - [PRODUCT.md](PRODUCT.md)
 - [Repository architecture review](docs/repository-architecture.md)
 - [Security model](docs/security-model.md)
