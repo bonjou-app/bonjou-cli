@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REPO="bonjou-app/bonjou-cli"
+REPO="kodolabs-hq/bonjou-cli"
 BREW_FORMULA="hamzaabdulwahab/bonjou/bonjou"
 SCOOP_MANIFEST_URL="https://raw.githubusercontent.com/hamzaabdulwahab/scoop-bonjou/main/bonjou.json"
 

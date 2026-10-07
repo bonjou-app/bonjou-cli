@@ -3,12 +3,12 @@ pkgver=1.1.0
 pkgrel=1
 pkgdesc="Terminal-based LAN chat and file transfer for local networks"
 arch=('x86_64')
-url="https://github.com/bonjou-app/bonjou-cli"
+url="https://github.com/kodolabs-hq/bonjou-cli"
 license=('MIT')
 depends=()
 provides=('bonjou')
 conflicts=('bonjou')
-source=("https://github.com/bonjou-app/bonjou-cli/releases/download/v${pkgver}/bonjou-linux-amd64")
+source=("https://github.com/kodolabs-hq/bonjou-cli/releases/download/v${pkgver}/bonjou-linux-amd64")
 sha256sums=('88c0b048dc9b6b17f77263b03968f41ab1f822498071e8bb6226055beb790c86')
 
 package() {

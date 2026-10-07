@@ -7,13 +7,13 @@ Pick your operating system and follow the steps.
 macOS/Linux:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/bonjou-app/bonjou-cli/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/kodolabs-hq/bonjou-cli/main/scripts/install.sh | bash
 ```
 
 Windows (PowerShell):
 
 ```powershell
-iwr https://raw.githubusercontent.com/bonjou-app/bonjou-cli/main/scripts/install.ps1 -useb | iex
+iwr https://raw.githubusercontent.com/kodolabs-hq/bonjou-cli/main/scripts/install.ps1 -useb | iex
 ```
 
 What this does:
@@ -50,7 +50,7 @@ brew update && brew upgrade bonjou
 
 1. Download from releases:
 ```bash
-curl -L -o bonjou https://github.com/bonjou-app/bonjou-cli/releases/download/v1.2.0/bonjou-macos
+curl -L -o bonjou https://github.com/kodolabs-hq/bonjou-cli/releases/download/v1.2.0/bonjou-macos
 ```
 
 2. Install:
@@ -67,7 +67,7 @@ bonjou
 ### Option 3: Build from source
 
 ```bash
-git clone https://github.com/bonjou-app/bonjou-cli.git
+git clone https://github.com/kodolabs-hq/bonjou-cli.git
 cd bonjou-cli
 go build -o bonjou ./cmd/bonjou
 sudo mv bonjou /usr/local/bin/
@@ -96,13 +96,13 @@ makepkg -si
 
 **Intel/AMD (most PCs):**
 ```bash
-wget https://github.com/bonjou-app/bonjou-cli/releases/download/v1.2.0/bonjou_1.2.0_amd64.deb
+wget https://github.com/kodolabs-hq/bonjou-cli/releases/download/v1.2.0/bonjou_1.2.0_amd64.deb
 sudo dpkg -i bonjou_1.2.0_amd64.deb
 ```
 
 **ARM64 (Mac with Docker/Parallels, Raspberry Pi):**
 ```bash
-wget https://github.com/bonjou-app/bonjou-cli/releases/download/v1.2.0/bonjou_1.2.0_arm64.deb
+wget https://github.com/kodolabs-hq/bonjou-cli/releases/download/v1.2.0/bonjou_1.2.0_arm64.deb
 sudo dpkg -i bonjou_1.2.0_arm64.deb
 ```
 
@@ -120,14 +120,14 @@ bonjou
 
 **Intel/AMD:**
 ```bash
-curl -L -o bonjou https://github.com/bonjou-app/bonjou-cli/releases/download/v1.2.0/bonjou-linux-amd64
+curl -L -o bonjou https://github.com/kodolabs-hq/bonjou-cli/releases/download/v1.2.0/bonjou-linux-amd64
 sudo mv bonjou /usr/local/bin/bonjou
 sudo chmod +x /usr/local/bin/bonjou
 ```
 
 **ARM64:**
 ```bash
-curl -L -o bonjou https://github.com/bonjou-app/bonjou-cli/releases/download/v1.2.0/bonjou-linux-arm64
+curl -L -o bonjou https://github.com/kodolabs-hq/bonjou-cli/releases/download/v1.2.0/bonjou-linux-arm64
 sudo mv bonjou /usr/local/bin/bonjou
 sudo chmod +x /usr/local/bin/bonjou
 ```
@@ -135,7 +135,7 @@ sudo chmod +x /usr/local/bin/bonjou
 ### Option 3: Build from source
 
 ```bash
-git clone https://github.com/bonjou-app/bonjou-cli.git
+git clone https://github.com/kodolabs-hq/bonjou-cli.git
 cd bonjou-cli
 go build -o bonjou ./cmd/bonjou
 sudo mv bonjou /usr/local/bin/
@@ -233,7 +233,7 @@ scoop install bonjou
 
 1. Download from releases:
 ```powershell
-Invoke-WebRequest -Uri https://github.com/bonjou-app/bonjou-cli/releases/download/v1.2.0/bonjou.exe -OutFile bonjou.exe
+Invoke-WebRequest -Uri https://github.com/kodolabs-hq/bonjou-cli/releases/download/v1.2.0/bonjou.exe -OutFile bonjou.exe
 ```
 
 2. Move it to a stable folder:
@@ -254,7 +254,7 @@ bonjou
 ### Option 5: Build from source
 
 ```powershell
-git clone https://github.com/bonjou-app/bonjou-cli.git
+git clone https://github.com/kodolabs-hq/bonjou-cli.git
 cd bonjou-cli
 go build -o bonjou.exe .\cmd\bonjou
 ```

@@ -1,10 +1,13 @@
 # Bonjou repository architecture
 
-Decision approved on 2026-09-10: the [Bonjou organization](https://github.com/bonjou-app)
-owns two public product repositories. The original CLI repository was transferred
+Decision approved on 2026-09-10: the organization owns two public Bonjou product
+repositories. On 2026-10-07 it was renamed to
+[kodolabs](https://github.com/kodolabs-hq), with GitHub address `kodolabs-hq`;
+`kodolabs` and `kodo-labs` were unavailable. The original CLI repository was transferred
 with its history and releases; the extracted web application is deployed at
-[bonjou.vercel.app](https://bonjou.vercel.app). The organization handle is
-`bonjou-app` because `bonjou` was already occupied. The existing Vercel project
+[bonjou.vercel.app](https://bonjou.vercel.app). The previous organization address
+was `bonjou-app`. Repository history, releases, visibility, and access were
+preserved during the rename. The existing Vercel project
 is connected to `bonjou-web`; its GitHub app has selected-repository access
 limited to that web repository for automatic deployments.
 
@@ -35,10 +38,12 @@ file metadata, and file payloads stay on direct WebRTC. See the
 
 The existing `hamzaabdulwahab/homebrew-bonjou` and
 `hamzaabdulwahab/scoop-bonjou` repositories remain distribution channels.
-Preserve release assets and installation links during the transfer. The Go
-module and internal imports now target `github.com/bonjou-app/bonjou-cli`, fixing
-its previous `hamzawahab`/`hamzaabdulwahab` owner mismatch as part of this ownership
-migration. Published version numbers and artifacts are unchanged.
+Repository links, installers, package templates, browser fixture provenance,
+and CI checkouts use `kodolabs-hq`. The Go module, internal imports, and lint
+import prefix retain `github.com/bonjou-app/bonjou-cli` for compatibility with
+existing module consumers and published tags. A module-path change requires a
+separate coordinated release. Published version numbers and artifacts are
+unchanged; no tags or history were rewritten.
 
 ## Protocol coordination
 

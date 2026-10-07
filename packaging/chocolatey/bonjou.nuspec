@@ -5,16 +5,16 @@
     <version>1.1.0</version>
     <title>Bonjou</title>
     <authors>Hamza Abdul Wahab</authors>
-    <projectUrl>https://github.com/bonjou-app/bonjou-cli</projectUrl>
-    <licenseUrl>https://github.com/bonjou-app/bonjou-cli/blob/main/LICENSE</licenseUrl>
+    <projectUrl>https://github.com/kodolabs-hq/bonjou-cli</projectUrl>
+    <licenseUrl>https://github.com/kodolabs-hq/bonjou-cli/blob/main/LICENSE</licenseUrl>
     <requireLicenseAcceptance>false</requireLicenseAcceptance>
     <description>Bonjou is a terminal-based LAN chat and file transfer tool for local networks.</description>
-    <releaseNotes>https://github.com/bonjou-app/bonjou-cli/releases/tag/v1.1.0</releaseNotes>
+    <releaseNotes>https://github.com/kodolabs-hq/bonjou-cli/releases/tag/v1.1.0</releaseNotes>
     <copyright>2026 Hamza Abdul Wahab</copyright>
     <tags>bonjou cli terminal lan chat file-transfer</tags>
-    <packageSourceUrl>https://github.com/bonjou-app/bonjou-cli/tree/main/packaging/chocolatey</packageSourceUrl>
-    <docsUrl>https://github.com/bonjou-app/bonjou-cli/blob/main/docs/install-guide.md</docsUrl>
-    <bugTrackerUrl>https://github.com/bonjou-app/bonjou-cli/issues</bugTrackerUrl>
+    <packageSourceUrl>https://github.com/kodolabs-hq/bonjou-cli/tree/main/packaging/chocolatey</packageSourceUrl>
+    <docsUrl>https://github.com/kodolabs-hq/bonjou-cli/blob/main/docs/install-guide.md</docsUrl>
+    <bugTrackerUrl>https://github.com/kodolabs-hq/bonjou-cli/issues</bugTrackerUrl>
   </metadata>
   <files>
     <file src="tools\**" target="tools" />
